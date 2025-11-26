@@ -376,7 +376,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('clearCache').addEventListener('click', clearCache);
 
   // --- LICENSE LOGIC ---
-  const WORKER_URL = "https://tweet-sanitizer-api.tweet-sanitizer.workers.dev";
+  const WORKER_URL = "https://tweet-sanitizer-api.tweetsanitizer.workers.dev";
 
   async function updateLicenseUI() {
     // Try sync first, then local (migration/fallback)

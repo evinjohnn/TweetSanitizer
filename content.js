@@ -77,7 +77,7 @@ const CACHE_KEY = 'twitter_location_cache';
 const CACHE_EXPIRY_DAYS = 30; // Cache for 30 days
 
 // Cloud API Configuration
-const CLOUD_API_URL = 'https://tweet-sanitizer-api.tweet-sanitizer.workers.dev';
+const CLOUD_API_URL = 'https://tweet-sanitizer-api.tweetsanitizer.workers.dev';
 const BATCH_SIZE = 5; // Process 5 items at a time
 const UPLOAD_QUEUE_KEY = 'pending_uploads';
 // Removed UPLOAD_INTERVAL and uploadIntervalRef as upload is now handled by background.js

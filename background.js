@@ -6,7 +6,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 // --- Background Upload Logic ---
-const CLOUD_API_URL = 'https://tweet-sanitizer-api.tweet-sanitizer.workers.dev';
+const CLOUD_API_URL = 'https://tweet-sanitizer-api.tweetsanitizer.workers.dev';
 const UPLOAD_QUEUE_KEY = 'pending_uploads';
 
 async function processUploadQueue() {

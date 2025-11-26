@@ -10,7 +10,8 @@
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
-    "https://tweet-sanitizer-api.tweet-sanitizer.workers.dev/*"
+    "https://tweet-sanitizer-api.tweetsanitizer.workers.dev/*",
+    "https://tweetsanitizer.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
