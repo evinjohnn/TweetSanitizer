@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - TweetSanitizer</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        h1 {
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #2c3e50;
+            margin-top: 30px;
+        }
+
+        ul {
+            background: #f9f9f9;
+            padding: 20px 40px;
+            border-radius: 5px;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        .date {
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Privacy Policy for TweetSanitizer</h1>
+    <p class="date">Last Updated: November 25, 2025</p>
+
+    <h2>1. Overview</h2>
+    <p>TweetSanitizer("the Extension") is a browser extension designed to enhance the user experience on X
+        (formerly Twitter) by displaying public location information next to usernames. We prioritize user privacy and
+        data minimization.</p>
+
+    <h2>2. Data Collection and Usage</h2>
+    <p>The Extension performs the following actions:</p>
+    <ul>
+        <li><strong>Username Detection:</strong> It reads usernames visible on the webpage you are visiting (x.com or
+            twitter.com).</li>
+        <li><strong>Data Fetching:</strong> It makes direct HTTPS requests from your browser to Twitter's own GraphQL
+            API (AboutAccountQuery) using your existing session.</li>
+        <li><strong>Data Processing:</strong> It processes the "Location" field returned by X/Twitter to map it to a
+            corresponding flag emoji.</li>
+    </ul>
+
+    <h2>3. Data Transmission and Storage</h2>
+    <ul>
+        <li><strong>Local Caching:</strong> To reduce network requests, location data is cached locally in your browser
+            using the <code>chrome.storage.local</code> API.</li>
+        <li><strong>License Verification:</strong> If you purchase a Pro license, your license key is transmitted to our
+            secure server (Cloudflare Workers) for validation. No other personal data is linked to this key.</li>
+        <li><strong>Cloud Sync & Batch Lookups:</strong> To improve performance and reduce rate limits on X/Twitter, the
+            extension uses a hybrid system. It may anonymously query our Cloudflare server for public location data of
+            profiles you view. It may also contribute public location data found on your timeline to this shared cache
+            to help other users.</li>
+        <li><strong>No Personal Tracking:</strong> We do not track your browsing history, search queries, or private
+            messages. We only process public profile information (usernames and location fields).</li>
+    </ul>
+
+    <h2>4. Permissions Justification</h2>
+    <ul>
+        <li><strong>Host Permissions:</strong> Required to modify the DOM on x.com and twitter.com to insert flag
+            emojis.</li>
+        <li><strong>Storage:</strong> Required to cache location data locally.</li>
+        <li><strong>Tabs/ActiveTab:</strong> Required to coordinate the on/off toggle in the popup menu.</li>
+    </ul>
+
+    <h2>5. Contact</h2>
+    <p>If you have questions about this policy, please contact us at: evynjohnignatious@gmail.com</p>
+</body>
+
+</html>

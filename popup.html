@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <style>
+    :root {
+      --bg-color: #F5F5F7;
+      --card-bg: #FFFFFF;
+      --text-primary: #1D1D1F;
+      --text-secondary: #86868B;
+      --accent-blue: #007AFF;
+      --accent-blue-hover: #0062CC;
+      --accent-orange: #F97316;
+      /* High Contrast Orange */
+      --accent-orange-hover: #EA580C;
+      --accent-green: #34C759;
+      --accent-green-hover: #2DA84A;
+      --accent-red: #FF3B30;
+      --border-color: #E5E5EA;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+      --shadow-btn: 0 2px 4px rgba(0, 0, 0, 0.08);
+      /* Button Shadow */
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+    }
+
+    body {
+      width: 340px;
+      padding: 20px;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      background: var(--bg-color);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* --- Typography --- */
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--text-primary);
+    }
+
+    .version {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      margin-top: 2px;
+    }
+
+    h2 {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      margin: 0 0 10px 4px;
+    }
+
+    /* --- Layout Components --- */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid rgba(0, 0, 0, 0.02);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    /* --- Toggles --- */
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .label {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 48px;
+      height: 28px;
+      background: #E9E9EA;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: background 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    }
+
+    .toggle-switch.enabled {
+      background: var(--accent-green);
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: white;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .toggle-switch.enabled::after {
+      transform: translateX(20px);
+    }
+
+    /* --- Buttons --- */
+    .button {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      box-sizing: border-box;
+      box-shadow: var(--shadow-btn);
+      /* Added Shadow */
+      position: relative;
+      /* For Spinner */
+    }
+
+    .button:active {
+      transform: scale(0.98);
+      box-shadow: none;
+    }
+
+    /* Loading Spinner */
+    .button.loading {
+      color: transparent !important;
+      pointer-events: none;
+    }
+
+    .button.loading::after {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      top: 50%;
+      left: 50%;
+      margin-top: -8px;
+      margin-left: -8px;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .btn-primary {
+      background: var(--accent-blue);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-blue-hover);
+    }
+
+    .btn-secondary {
+      background: #F2F2F7;
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background: #E5E5EA;
+    }
+
+    .btn-monthly {
+      background: var(--accent-blue);
+      color: white;
+    }
+
+    .btn-monthly:hover {
+      background: var(--accent-blue-hover);
+    }
+
+    .btn-lifetime {
+      background: var(--accent-orange);
+      color: white;
+    }
+
+    .btn-lifetime:hover {
+      background: var(--accent-orange-hover);
+    }
+
+    .btn-verify {
+      background: var(--accent-green);
+      color: white;
+    }
+
+    .btn-verify:hover {
+      background: var(--accent-green-hover);
+    }
+
+    .btn-danger {
+      background: #FFF2F2;
+      color: var(--accent-red);
+    }
+
+    .btn-danger:hover {
+      background: #FFE5E5;
+    }
+
+    /* --- Inputs --- */
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      background: #F2F2F7;
+      color: var(--text-primary);
+      transition: all 0.2s;
+      box-sizing: border-box;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      background: white;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+    }
+
+    /* --- License Section --- */
+    .license-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .badge {
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      background: #E5E5EA;
+      color: var(--text-secondary);
+    }
+
+    .badge.pro {
+      background: #E8F5E9;
+      color: var(--accent-green);
+    }
+
+    .info-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .msg {
+      font-size: 11px;
+      margin-top: 6px;
+      min-height: 14px;
+      font-weight: 500;
+    }
+
+    .status {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+      text-align: center;
+      min-height: 16px;
+    }
+
+    .status.success {
+      color: var(--accent-green);
+      font-weight: 500;
+    }
+
+    /* --- Country List --- */
+    .country-list {
+      max-height: 180px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      margin: 12px 0;
+      background: white;
+    }
+
+    .country-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid #F2F2F7;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .country-item:last-child {
+      border-bottom: none;
+    }
+
+    .country-item:hover {
+      background: #F9F9F9;
+    }
+
+    .country-checkbox {
+      margin-right: 12px;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent-blue);
+    }
+
+    /* --- Stats --- */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #F2F2F7;
+      font-size: 13px;
+    }
+
+    .stat-row:last-child {
+      border-bottom: none;
+    }
+
+    .stat-label {
+      color: var(--text-secondary);
+    }
+
+    .stat-value {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    /* --- Lock Overlay --- */
+    .lock-wrapper {
+      position: relative;
+    }
+
+    .lock-overlay {
+      position: absolute;
+      top: -8px;
+      left: -8px;
+      right: -8px;
+      bottom: -8px;
+      background: rgba(255, 255, 255, 0.2);
+      /* Subtle overlay */
+      backdrop-filter: blur(1px);
+      /* Reduced blur */
+      z-index: 10;
+      border-radius: var(--radius-lg);
+      cursor: not-allowed;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      /* Capture clicks for toast */
+    }
+
+    .pro-locked {
+      /* Visuals removed as requested */
+      pointer-events: none;
+      /* Prevent interaction with underlying elements */
+    }
+
+    /* --- Toast --- */
+    .toast {
+      visibility: hidden;
+      min-width: 220px;
+      background-color: white;
+      color: var(--accent-red);
+      text-align: center;
+      border-radius: 50px;
+      padding: 12px 24px;
+      position: fixed;
+      z-index: 100;
+      left: 50%;
+      bottom: 30px;
+      transform: translateX(-50%) translateY(20px);
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      border: 1px solid #FFE5E5;
+    }
+
+    .toast.show {
+      visibility: visible;
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* --- Footer --- */
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .link {
+      color: var(--text-secondary);
+      text-decoration: none;
+    }
+
+    .link:hover {
+      color: var(--text-primary);
+      text-decoration: underline;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #D1D1D6;
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #C7C7CC;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div>
+      <h1>TweetSanitizer</h1>
+      <div class="version">v2.0.0</div>
+    </div>
+    <!-- Status Indicator Dot -->
+    <div id="headerStatusDot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent-green);">
+    </div>
+  </div>
+
+  <!-- Main Toggle -->
+  <div class="card row">
+    <span class="label">Enable Extension</span>
+    <div class="toggle-switch" id="toggleSwitch"></div>
+  </div>
+
+  <!-- License Section -->
+  <div class="card">
+    <div class="license-header">
+      <span class="label">Pro License</span>
+      <span id="licenseStatusBadge" class="badge">Free Tier</span>
+    </div>
+
+    <!-- Buy / Verify Container -->
+    <div id="buyContainer">
+      <p class="info-text">Unlock Auto-Hide, Database Sync, and Country Blocking.</p>
+
+      <div class="button-group">
+        <a href="https://tweetsanitizer.lemonsqueezy.com/buy/29a38b6f-6ad0-4369-ae15-7011a28e37c5" target="_blank"
+          class="button btn-monthly">Monthly ($1)</a>
+        <a href="https://tweetsanitizer.lemonsqueezy.com/buy/9533e548-06e5-434d-afe4-abbed81a40cc" target="_blank"
+          class="button btn-lifetime">Lifetime ($7)</a>
+      </div>
+
+      <div class="input-group">
+        <input type="text" id="licenseInput" placeholder="Paste License Key" />
+        <button id="verifyBtn" class="button btn-verify" style="width: auto;">Activate</button>
+      </div>
+      <div id="verifyMsg" class="msg"></div>
+    </div>
+
+    <!-- Active State -->
+    <div id="activeContainer" style="display: none;">
+      <p class="info-text" style="color: var(--accent-green); font-weight: 500;">License Active! You have full access.
+      </p>
+      <button id="deactivateBtn" class="button btn-danger">Remove Key</button>
+    </div>
+  </div>
+
+  <!-- Pro Features (Locked) -->
+  <div id="proFeaturesWrapper" class="lock-wrapper">
+    <div id="proLockOverlay" class="lock-overlay" style="display: none;">
+      <!-- Optional: Lock Icon -->
+    </div>
+
+    <div class="card">
+      <h2>Block Countries</h2>
+      <input type="text" id="countrySearch" placeholder="Search countries..." style="margin-bottom: 12px;">
+      <div class="country-list" id="countryList">
+        <!-- Populated by JS -->
+      </div>
+      <button class="button btn-primary" id="saveSettings">Save Settings</button>
+      <div id="status" class="msg" style="text-align: center; margin-top: 8px;"></div>
+    </div>
+
+    <div class="card row">
+      <div>
+        <span class="label">Auto-Mute on Twitter</span>
+        <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">Experimental (Legacy)</div>
+      </div>
+      <div class="toggle-switch" id="muteSwitch"></div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card">
+    <h2>Statistics</h2>
+    <div class="stat-row">
+      <span class="stat-label">Cached Locations</span>
+      <span class="stat-value" id="cacheCount">...</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Cache Size</span>
+      <span class="stat-value" id="cacheSize">...</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">System Status</span>
+      <span class="stat-value" id="extensionStatus">Active</span>
+    </div>
+    <button class="button btn-secondary" id="clearCache" style="margin-top: 8px;">Clear Cache</button>
+  </div>
+
+  <div class="footer">
+    <a href="privacy.html" class="link" target="_blank">Privacy Policy</a>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast">Available only in Pro plan</div>
+
+  <script src="countryFlags.js"></script>
+  <script src="popup.js"></script>
+</body>
+
+</html>
