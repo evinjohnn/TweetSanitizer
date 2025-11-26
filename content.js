@@ -969,8 +969,34 @@ async function addFlagToUsername(usernameElement, screenName) {
           flagSpan.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
         }
       } else {
-        flagSpan.textContent = ` ${flagData.value}`;
-        flagSpan.style.color = 'inherit';
+        // Use Twemoji for consistent rendering (Windows Fix)
+        const emoji = flagData.value;
+
+        // 1. Convert emoji to hex code points (e.g. 🇺🇸 -> 1f1fa-1f1f8)
+        const hexCode = Array.from(emoji)
+          .map(c => c.codePointAt(0).toString(16))
+          .join('-');
+
+        // 2. Create Image Element
+        const img = document.createElement('img');
+        img.src = `https://abs-0.twimg.com/emoji/v2/svg/${hexCode}.svg`;
+        img.alt = emoji;
+        img.draggable = false;
+
+        // 3. Apply Styles
+        img.style.height = '1.1em';
+        img.style.width = 'auto';
+        img.style.verticalAlign = '-0.2em';
+        img.style.margin = '0 4px';
+
+        // 4. Error Handler (Fallback)
+        img.onerror = () => {
+          flagSpan.innerHTML = ''; // Clear image
+          flagSpan.textContent = ` ${emoji}`; // Fallback to text
+          flagSpan.style.color = 'inherit';
+        };
+
+        flagSpan.appendChild(img);
       }
 
       const containerForFlag = userNameContainer || usernameElement.querySelector('[data-testid="UserName"], [data-testid="User-Name"]');
