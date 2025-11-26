@@ -934,7 +934,28 @@ async function addFlagToUsername(usernameElement, screenName) {
       const handleSection = findHandleSection(containerForFlag, screenName);
       let inserted = false;
 
-      if (handleSection && handleSection.parentNode === containerForFlag) {
+      // Check for Column Layout (Tweet Detail View)
+      let isColumnLayout = false;
+      try {
+        const style = window.getComputedStyle(containerForFlag);
+        if (style.flexDirection === 'column') {
+          isColumnLayout = true;
+        }
+      } catch (e) { }
+
+      if (isColumnLayout && handleSection && handleSection.parentNode === containerForFlag) {
+        // In column layout, insert INSIDE the name section (previous sibling)
+        // to keep it on the same line as the name
+        const nameSection = handleSection.previousElementSibling;
+        if (nameSection) {
+          try {
+            nameSection.appendChild(flagSpan);
+            inserted = true;
+          } catch (e) { }
+        }
+      }
+
+      if (!inserted && handleSection && handleSection.parentNode === containerForFlag) {
         try {
           containerForFlag.insertBefore(flagSpan, handleSection);
           inserted = true;

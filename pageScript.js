@@ -1,10 +1,66 @@
 // This script runs in the page context to access cookies and make API calls
 (function () {
-    // Store headers from the platform's API calls
+    // --- DYNAMIC ID EXTRACTION SYSTEM ---
     let platformHeaders = null;
     let headersReady = false;
-    let capturedQueryId = null;
-    const FALLBACK_QUERY_ID = 'zs_jFPFT78rBpXv9Z3U2YQ'; // Updated fallback ID (2025-11-25)
+    let capturedQueryId = null; // Kept to prevent ReferenceError in captureHeaders
+
+    // Default fallback (Use the last known working ID)
+    let currentQueryId = 'zs_jFPFT78rBpXv9Z3U2YQ';
+
+    // Function to find the ID from Twitter's own JS bundles
+    async function fetchLatestQueryId() {
+        try {
+            // 1. Check if we already cached it in this session
+            if (window.__tweetSanitizerQueryId) {
+                return window.__tweetSanitizerQueryId;
+            }
+
+            // 2. Find the script tags Twitter uses
+            // Twitter usually keeps API definitions in 'main', 'api', or 'endpoints' bundles
+            const scripts = Array.from(document.querySelectorAll('script[src]'))
+                .filter(s => s.src.includes('client-web/main.') || s.src.includes('client-web/api.'));
+
+            for (const script of scripts) {
+                try {
+                    // Fetch the script content
+                    const response = await fetch(script.src);
+                    const text = await response.text();
+
+                    // 3. Regex to find the ID
+                    // Pattern looks for: {queryId:"IsR...sA",operationName:"AboutAccountQuery"...}
+                    // We look for "AboutAccountQuery" and capture the 'queryId' near it.
+
+                    // Regex explanation: 
+                    // Matches: queryId:"(CAPTURE_THIS)", ... "AboutAccountQuery"
+                    // OR: "AboutAccountQuery" ... queryId:"(CAPTURE_THIS)"
+                    const regex = /queryId:"([^"]+)",operationName:"AboutAccountQuery"|operationName:"AboutAccountQuery",queryId:"([^"]+)"/;
+                    const match = text.match(regex);
+
+                    if (match) {
+                        // match[1] or match[2] will contain the ID
+                        const foundId = match[1] || match[2];
+                        if (foundId) {
+                            console.log('TweetSanitizer: Extracted Dynamic Query ID:', foundId);
+                            currentQueryId = foundId;
+                            window.__tweetSanitizerQueryId = foundId; // Cache in memory
+                            return foundId;
+                        }
+                    }
+                } catch (e) {
+                    // Continue to next script if fetch fails
+                }
+            }
+        } catch (e) {
+            console.warn('TweetSanitizer: Failed to extract dynamic ID, using fallback.');
+        }
+        return currentQueryId;
+    }
+
+    // Initialize extraction immediately
+    fetchLatestQueryId();
+
+    // --- END DYNAMIC SYSTEM ---
 
     // Mapping of adjectives to country/region names for "connected via" fallback
     const ADJECTIVE_TO_LOCATION = {
@@ -360,7 +416,8 @@
 
                 try {
                     const variables = JSON.stringify({ screenName });
-                    const queryId = capturedQueryId || FALLBACK_QUERY_ID;
+                    // Ensure we have the latest ID before making the request
+                    const queryId = await fetchLatestQueryId();
                     const url = `https://x.com/i/api/graphql/${queryId}/AboutAccountQuery?variables=${encodeURIComponent(variables)}`;
 
                     // Use captured headers or minimal defaults
