@@ -18,8 +18,10 @@ async function processUploadQueue() {
 
         if (usernames.length === 0) return;
 
-        // 2. Convert to Array format for server
-        const payload = usernames.map(u => ({ username: u, location: queue[u] }));
+        // 2. Chunking (Max 50 items per request to avoid server reject/timeout)
+        // We only take the first 50. The rest will stay in queue and trigger again later.
+        const chunkUsernames = usernames.slice(0, 50);
+        const payload = chunkUsernames.map(u => ({ username: u, location: queue[u] }));
 
         // 3. Send Batch
         const response = await fetch(`${CLOUD_API_URL}/submit`, {
@@ -34,7 +36,7 @@ async function processUploadQueue() {
             const currentStorage = await chrome.storage.local.get(UPLOAD_QUEUE_KEY);
             let currentQueue = currentStorage[UPLOAD_QUEUE_KEY] || {};
 
-            usernames.forEach(u => delete currentQueue[u]);
+            chunkUsernames.forEach(u => delete currentQueue[u]);
 
             await chrome.storage.local.set({ [UPLOAD_QUEUE_KEY]: currentQueue });
         } else {

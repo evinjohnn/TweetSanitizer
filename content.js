@@ -80,8 +80,7 @@ const CACHE_EXPIRY_DAYS = 30; // Cache for 30 days
 const CLOUD_API_URL = 'https://tweet-sanitizer-api.tweet-sanitizer.workers.dev';
 const BATCH_SIZE = 5; // Process 5 items at a time
 const UPLOAD_QUEUE_KEY = 'pending_uploads';
-const UPLOAD_INTERVAL = 30 * 60 * 1000; // 30 Minutes
-let uploadIntervalRef = null;
+// Removed UPLOAD_INTERVAL and uploadIntervalRef as upload is now handled by background.js
 const requestQueue = [];
 const MAX_QUEUE_SIZE = 150; // Increased limit to prevent dropping items during fast scroll
 const QUEUE_ITEM_TIMEOUT = 30000; // 30 seconds max in queuese;
@@ -420,53 +419,14 @@ async function queueForUpload(username, location) {
     await chrome.storage.local.set({ [UPLOAD_QUEUE_KEY]: queue });
 
     // 4. Trigger upload if queue gets big (e.g., > 20 items)
-    if (Object.keys(queue).length >= 20) {
-      processUploadQueue();
-    }
+    // Handled by background.js listener now
   } catch (e) {
     console.warn('TweetSanitizer: Queue save failed', e);
   }
 }
 
 // Flush the queue to the server
-async function processUploadQueue() {
-  try {
-    // 1. Get queue
-    const result = await chrome.storage.local.get(UPLOAD_QUEUE_KEY);
-    const queue = result[UPLOAD_QUEUE_KEY] || {};
-    const usernames = Object.keys(queue);
-
-    if (usernames.length === 0) return;
-
-    // console.log(`TweetSanitizer: Uploading ${usernames.length} new locations to Cloud...`);
-
-    // 2. Convert to Array format for server
-    const payload = usernames.map(u => ({ username: u, location: queue[u] }));
-
-    // 3. Send Batch
-    const response = await fetch(`${CLOUD_API_URL}/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ users: payload })
-    });
-
-    if (response.ok) {
-      // 4. Clear Queue ONLY if successful
-      // We remove the specific keys we just sent, in case new ones were added while uploading
-      const currentStorage = await chrome.storage.local.get(UPLOAD_QUEUE_KEY);
-      let currentQueue = currentStorage[UPLOAD_QUEUE_KEY] || {};
-
-      usernames.forEach(u => delete currentQueue[u]);
-
-      await chrome.storage.local.set({ [UPLOAD_QUEUE_KEY]: currentQueue });
-      // console.log('TweetSanitizer: Upload success.');
-    } else {
-      console.warn('TweetSanitizer: Upload failed, keeping data for retry.');
-    }
-  } catch (e) {
-    console.error('TweetSanitizer: Upload error', e);
-  }
-}
+// processUploadQueue removed - moved to background.js
 
 // Smart Strategy Selector
 function getFetchStrategy() {
@@ -1382,10 +1342,13 @@ function stopIdleLoading() {
 
 
 async function init() {
+  // Check license in background (don't await to avoid blocking UI)
+  checkLicense();
+
+  // Load settings
   await loadEnabledState();
-  await loadCache();
   await loadBlockedCountries();
-  await checkLicense(); // <--- MUST ADD THIS WAIT
+  await loadCache();
 
   if (!extensionEnabled) return;
 
@@ -1416,9 +1379,10 @@ async function init() {
   setInterval(saveCache, 30000);
 
   // Start periodic upload sync
-  setInterval(processUploadQueue, UPLOAD_INTERVAL);
+  // Upload logic moved to background.js
+  // setInterval(processUploadQueue, UPLOAD_INTERVAL);
   // Also try to upload on page load (in case previous session left data)
-  setTimeout(processUploadQueue, 10000);
+  // setTimeout(processUploadQueue, 10000);
 }
 
 if (document.readyState === 'loading') {
