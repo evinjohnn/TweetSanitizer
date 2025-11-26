@@ -1,6 +1,8 @@
 const TOGGLE_KEY = 'extension_enabled';
 const CACHE_KEY = 'twitter_location_cache';
 const BLOCKED_KEY = 'blocked_countries';
+const WHITELIST_KEY = 'whitelist_usernames';
+const PROTECT_FOLLOWING_KEY = 'protect_following';
 const DEFAULT_ENABLED = true;
 
 // Load and display statistics
@@ -119,19 +121,27 @@ function showStatus(message, success = true) {
   }, 3000);
 }
 
-// --- Country Blocking Logic ---
+// --- Country Blocking & Whitelist Logic ---
 
 let allCountries = [];
 let blockedCountries = new Set();
+let whitelistUsernames = new Set();
 const MUTE_KEY = 'auto_mute_enabled';
 
-async function loadBlockedCountries() {
+async function loadSettings() {
   try {
-    const result = await chrome.storage.local.get([BLOCKED_KEY, MUTE_KEY]);
+    const result = await chrome.storage.local.get([BLOCKED_KEY, MUTE_KEY, WHITELIST_KEY, PROTECT_FOLLOWING_KEY]);
+
+    // Blocked Countries
     const blockedList = result[BLOCKED_KEY] || [];
     blockedCountries = new Set(blockedList);
 
-    // Load mute state (Default: false)
+    // Whitelist
+    const whitelist = result[WHITELIST_KEY] || [];
+    whitelistUsernames = new Set(whitelist);
+    renderWhitelist();
+
+    // Auto Mute
     const muteEnabled = result[MUTE_KEY] || false;
     const muteSwitch = document.getElementById('muteSwitch');
     if (muteEnabled) {
@@ -139,6 +149,16 @@ async function loadBlockedCountries() {
     } else {
       muteSwitch.classList.remove('enabled');
     }
+
+    // Protect Following
+    const protectFollowing = result[PROTECT_FOLLOWING_KEY] || false;
+    const protectSwitch = document.getElementById('protectFollowingSwitch');
+    if (protectFollowing) {
+      protectSwitch.classList.add('enabled');
+    } else {
+      protectSwitch.classList.remove('enabled');
+    }
+
   } catch (error) {
     console.error('Error loading settings:', error);
   }
@@ -149,17 +169,93 @@ function toggleMute() {
   const isEnabled = muteSwitch.classList.contains('enabled');
   const newState = !isEnabled;
 
-  // console.log('Popup: Toggling mute to', newState);
-
   if (newState) {
     muteSwitch.classList.add('enabled');
   } else {
     muteSwitch.classList.remove('enabled');
   }
 
-  chrome.storage.local.set({ [MUTE_KEY]: newState }, () => {
-    // console.log('Popup: Saved auto_mute_enabled:', newState);
+  chrome.storage.local.set({ [MUTE_KEY]: newState });
+}
+
+function toggleProtectFollowing() {
+  const protectSwitch = document.getElementById('protectFollowingSwitch');
+  const isEnabled = protectSwitch.classList.contains('enabled');
+  const newState = !isEnabled;
+
+  if (newState) {
+    protectSwitch.classList.add('enabled');
+  } else {
+    protectSwitch.classList.remove('enabled');
+  }
+
+  chrome.storage.local.set({ [PROTECT_FOLLOWING_KEY]: newState });
+}
+
+// --- Whitelist Functions ---
+
+function renderWhitelist() {
+  const container = document.getElementById('whitelistContainer');
+  container.innerHTML = '';
+
+  if (whitelistUsernames.size === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.style.padding = '12px';
+    emptyMsg.style.color = 'var(--text-secondary)';
+    emptyMsg.style.textAlign = 'center';
+    emptyMsg.textContent = 'No whitelisted users';
+    container.appendChild(emptyMsg);
+    return;
+  }
+
+  whitelistUsernames.forEach(username => {
+    const item = document.createElement('div');
+    item.className = 'country-item';
+    item.style.justifyContent = 'space-between';
+
+    const label = document.createElement('span');
+    label.textContent = username;
+
+    const removeBtn = document.createElement('span');
+    removeBtn.textContent = '✕';
+    removeBtn.style.cursor = 'pointer';
+    removeBtn.style.color = 'var(--text-secondary)';
+    removeBtn.style.padding = '4px 8px';
+
+    removeBtn.onclick = () => {
+      whitelistUsernames.delete(username);
+      saveWhitelist();
+      renderWhitelist();
+    };
+
+    item.appendChild(label);
+    item.appendChild(removeBtn);
+    container.appendChild(item);
   });
+}
+
+async function saveWhitelist() {
+  const list = Array.from(whitelistUsernames);
+  await chrome.storage.local.set({ [WHITELIST_KEY]: list });
+}
+
+function addToWhitelist() {
+  const input = document.getElementById('whitelistInput');
+  let username = input.value.trim();
+
+  if (!username) return;
+
+  // Normalize: Remove @ if present
+  if (username.startsWith('@')) {
+    username = username.substring(1);
+  }
+
+  if (username) {
+    whitelistUsernames.add(username); // Store without @ for consistency with API/Content script
+    saveWhitelist();
+    renderWhitelist();
+    input.value = '';
+  }
 }
 
 function populateCountryList(filter = '') {
@@ -238,32 +334,18 @@ async function saveSettings() {
 document.addEventListener('DOMContentLoaded', async () => {
   await loadState();
   await loadStats();
-  await loadBlockedCountries();
+  await loadSettings();
 
   // Prepare country list from COUNTRY_FLAGS (available via script tag)
   if (typeof COUNTRY_FLAGS !== 'undefined') {
     allCountries = Object.keys(COUNTRY_FLAGS).map(key => {
-      // Handle simple string values (emoji/name) or object values (regions)
       const value = COUNTRY_FLAGS[key];
-      // We only want unique keys that are actual country/region names
-      // COUNTRY_FLAGS has many aliases, we should try to deduplicate or just show all unique keys
-      // For simplicity, let's use all keys but maybe filter out some if needed.
-      // Actually, the user wants to block by "normalized Country Name (Key)".
-      // getCountryFlag returns the key.
-      // Let's just list all keys in COUNTRY_FLAGS that are not aliases if possible, 
-      // OR just list everything. Listing everything might be too much (aliases).
-      // Let's rely on the fact that getCountryFlag returns a specific key.
-      // But COUNTRY_FLAGS keys ARE the normalized names mostly.
       return {
         name: key,
         key: key,
         emoji: typeof value === 'string' ? value : (value.label || '')
       };
     });
-
-    // Deduplicate based on name to avoid showing aliases if they point to same thing?
-    // Actually COUNTRY_FLAGS keys are unique.
-
     populateCountryList();
   }
 
@@ -278,6 +360,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Mute switch
   document.getElementById('muteSwitch').addEventListener('click', toggleMute);
 
+  // Protect Following switch
+  document.getElementById('protectFollowingSwitch').addEventListener('click', toggleProtectFollowing);
+
+  // Whitelist
+  document.getElementById('addWhitelistBtn').addEventListener('click', addToWhitelist);
+  document.getElementById('whitelistInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') addToWhitelist();
+  });
+
   // Toggle switch click
   document.getElementById('toggleSwitch').addEventListener('click', toggleExtension);
 
@@ -288,7 +379,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   const WORKER_URL = "https://tweet-sanitizer-api.tweet-sanitizer.workers.dev";
 
   async function updateLicenseUI() {
-    const result = await chrome.storage.local.get(['license_key', 'license_status']);
+    // Try sync first, then local (migration/fallback)
+    let result = await chrome.storage.sync.get(['license_key', 'license_status']);
+    if (!result.license_key) {
+      result = await chrome.storage.local.get(['license_key', 'license_status']);
+      // Optional: Migrate to sync if found in local?
+      if (result.license_key) {
+        await chrome.storage.sync.set({
+          license_key: result.license_key,
+          license_status: result.license_status
+        });
+      }
+    }
     const isPro = result.license_status === true;
 
     const buyContainer = document.getElementById('buyContainer');
@@ -336,6 +438,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast("Available only in Pro plan");
   });
 
+  // --- User ID Logic (Anti-Sharing) ---
+  async function getUniqueUserId() {
+    // Try sync storage (cross-device profile)
+    let data = await chrome.storage.sync.get(['ts_user_id']);
+    if (data.ts_user_id) return data.ts_user_id;
+
+    // Generate new ID if missing
+    const newId = crypto.randomUUID();
+    await chrome.storage.sync.set({ ts_user_id: newId });
+    return newId;
+  }
+
   // Verify Button Click
   document.getElementById('verifyBtn').addEventListener('click', async () => {
     const input = document.getElementById('licenseInput');
@@ -351,10 +465,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     msg.style.color = "#86868B"; // var(--text-secondary)
 
     try {
+      const userId = await getUniqueUserId();
       const response = await fetch(`${WORKER_URL}/verify-license`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licenseKey: key })
+        body: JSON.stringify({
+          licenseKey: key,
+          userId: userId
+        })
       });
 
       const data = await response.json();
@@ -363,8 +481,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         msg.textContent = "Success!";
         msg.style.color = "#34C759"; // var(--accent-green)
 
-        // Save to storage
-        await chrome.storage.local.set({
+        // Save to storage (SYNC)
+        await chrome.storage.sync.set({
           license_key: key,
           license_status: true
         });
@@ -380,7 +498,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         msg.textContent = data.message || "Invalid Key";
         msg.style.color = "#FF3B30"; // var(--accent-red)
-        await chrome.storage.local.set({ license_status: false });
+        await chrome.storage.sync.set({ license_status: false });
       }
     } catch (e) {
       msg.textContent = "Connection Error";
@@ -394,7 +512,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Deactivate Button
   document.getElementById('deactivateBtn').addEventListener('click', async () => {
-    await chrome.storage.local.remove(['license_key', 'license_status']);
+    await chrome.storage.sync.remove(['license_key', 'license_status']);
+    await chrome.storage.local.remove(['license_key', 'license_status']); // Clear local too just in case
     await updateLicenseUI();
     // Reload tabs to apply changes
     const tabs = await chrome.tabs.query({ url: ["*://*.x.com/*", "*://*.twitter.com/*"] });
@@ -404,9 +523,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Load saved license key if exists (for pre-fill)
-  chrome.storage.local.get(['license_key'], (result) => {
+  chrome.storage.sync.get(['license_key'], (result) => {
     if (result.license_key) {
       document.getElementById('licenseInput').value = result.license_key;
+    } else {
+      // Fallback to local
+      chrome.storage.local.get(['license_key'], (localResult) => {
+        if (localResult.license_key) {
+          document.getElementById('licenseInput').value = localResult.license_key;
+        }
+      });
     }
   });
 

@@ -544,6 +544,26 @@
       </div>
       <div class="toggle-switch" id="muteSwitch"></div>
     </div>
+
+    <div class="card row">
+      <div>
+        <span class="label">Never block users I follow</span>
+        <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">Protect Following</div>
+      </div>
+      <div class="toggle-switch" id="protectFollowingSwitch"></div>
+    </div>
+
+    <div class="card">
+      <h2>Whitelist</h2>
+      <div class="input-group" style="margin-bottom: 12px;">
+        <input type="text" id="whitelistInput" placeholder="@username">
+        <button id="addWhitelistBtn" class="button btn-primary" style="width: auto;">Add</button>
+      </div>
+      <div class="country-list" id="whitelistContainer" style="max-height: 120px;">
+        <!-- Populated by JS -->
+      </div>
+      <div id="whitelistStatus" class="msg" style="text-align: center; margin-top: 8px;"></div>
+    </div>
   </div>
 
   <!-- Stats -->

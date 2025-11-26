@@ -14,19 +14,31 @@ let isProUser = false; // Default to locked
 // Check license with Server on startup (Security Best Practice)
 async function checkLicense() {
   try {
-    const result = await chrome.storage.local.get(['license_key']);
-    const savedKey = result.license_key;
+    // Try sync first, then local
+    let result = await chrome.storage.sync.get(['license_key']);
+    let savedKey = result.license_key;
+
+    if (!savedKey) {
+      result = await chrome.storage.local.get(['license_key']);
+      savedKey = result.license_key;
+    }
 
     if (!savedKey) {
       isProUser = false;
       return;
     }
 
+    // Get User ID for binding check
+    const userId = await getUniqueUserId();
+
     // Verify with Cloudflare
     const response = await fetch(`${CLOUD_API_URL}/verify-license`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ licenseKey: savedKey })
+      body: JSON.stringify({
+        licenseKey: savedKey,
+        userId: userId
+      })
     });
 
     const data = await response.json();
@@ -34,14 +46,30 @@ async function checkLicense() {
 
     // If key became invalid (refunded/expired), revoke access locally
     if (!isProUser) {
+      chrome.storage.sync.set({ license_status: false });
       chrome.storage.local.set({ license_status: false });
     }
 
   } catch (e) {
     // Network error? Fallback to last known status to be nice to user
-    const local = await chrome.storage.local.get('license_status');
+    let local = await chrome.storage.sync.get('license_status');
+    if (local.license_status === undefined) {
+      local = await chrome.storage.local.get('license_status');
+    }
     isProUser = local.license_status === true;
   }
+}
+
+// --- User ID Logic (Anti-Sharing) ---
+async function getUniqueUserId() {
+  // Try sync storage (cross-device profile)
+  let data = await chrome.storage.sync.get(['ts_user_id']);
+  if (data.ts_user_id) return data.ts_user_id;
+
+  // Generate new ID if missing
+  const newId = crypto.randomUUID();
+  await chrome.storage.sync.set({ ts_user_id: newId });
+  return newId;
 }
 
 let locationCache = new Map();
@@ -130,25 +158,43 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // --- Country Blocking Logic ---
 let blockedCountries = new Set();
+let whitelistUsernames = new Set();
 let autoMuteEnabled = false;
+let protectFollowing = false;
 const BLOCKED_KEY = 'blocked_countries';
 const MUTE_KEY = 'auto_mute_enabled';
+const WHITELIST_KEY = 'whitelist_usernames';
+const PROTECT_FOLLOWING_KEY = 'protect_following';
 
 async function loadBlockedCountries() {
   try {
     if (!chrome.runtime?.id) return; // Extension context invalid
-    const result = await chrome.storage.local.get([BLOCKED_KEY, MUTE_KEY]);
+    const result = await chrome.storage.local.get([BLOCKED_KEY, MUTE_KEY, WHITELIST_KEY, PROTECT_FOLLOWING_KEY]);
+
+    // Blocked Countries
     let blockedList = result[BLOCKED_KEY];
     if (!Array.isArray(blockedList)) {
       blockedList = [];
     }
     blockedCountries = new Set(blockedList);
+
+    // Whitelist
+    let whitelist = result[WHITELIST_KEY];
+    if (!Array.isArray(whitelist)) {
+      whitelist = [];
+    }
+    whitelistUsernames = new Set(whitelist);
+
+    // Settings
     autoMuteEnabled = result[MUTE_KEY] || false;
-    // console.log('TweetSanitizer: Loaded blocked countries:', blockedList, 'Auto-Mute:', autoMuteEnabled);
+    protectFollowing = result[PROTECT_FOLLOWING_KEY] || false;
+
+    // console.log('TweetSanitizer: Loaded settings. Blocked:', blockedCountries.size, 'Whitelist:', whitelistUsernames.size, 'Protect:', protectFollowing);
   } catch (error) {
     console.warn('TweetSanitizer: Warning loading blocked countries (non-fatal)', error);
     // Initialize empty to prevent crashes
     blockedCountries = new Set();
+    whitelistUsernames = new Set();
   }
 }
 
@@ -156,15 +202,19 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace === 'local') {
     if (changes[BLOCKED_KEY]) {
       let newValue = changes[BLOCKED_KEY].newValue;
-      if (!Array.isArray(newValue)) {
-        newValue = [];
-      }
+      if (!Array.isArray(newValue)) newValue = [];
       blockedCountries = new Set(newValue);
-      // console.log('TweetSanitizer: Updated blocked countries:', newValue);
+    }
+    if (changes[WHITELIST_KEY]) {
+      let newValue = changes[WHITELIST_KEY].newValue;
+      if (!Array.isArray(newValue)) newValue = [];
+      whitelistUsernames = new Set(newValue);
     }
     if (changes[MUTE_KEY]) {
       autoMuteEnabled = changes[MUTE_KEY].newValue !== undefined ? changes[MUTE_KEY].newValue : false;
-      // console.log('TweetSanitizer: Updated Auto-Mute:', autoMuteEnabled);
+    }
+    if (changes[PROTECT_FOLLOWING_KEY]) {
+      protectFollowing = changes[PROTECT_FOLLOWING_KEY].newValue !== undefined ? changes[PROTECT_FOLLOWING_KEY].newValue : false;
     }
   }
 });
@@ -173,15 +223,53 @@ window.addEventListener('focus', () => {
   loadBlockedCountries();
 });
 
+function isUserFollowed(element) {
+  try {
+    // 1. Check for "Following" button in the same container (UserCell, etc.)
+    // Twitter Follow buttons usually have data-testid ending in "-unfollow" if you are following them.
+    // e.g. data-testid="userFollow-123456-unfollow"
+
+    // Look up to finding a container
+    const container = element.closest('[data-testid="UserCell"], [data-testid="tweet"], [data-testid="cellInnerDiv"]');
+
+    if (container) {
+      // Check for the "Following" button state (which allows unfollowing)
+      const unfollowBtn = container.querySelector('[data-testid$="-unfollow"]');
+      if (unfollowBtn) return true;
+
+      // Also check for "Following" text badge if present (sometimes in header)
+      // This is less reliable as it depends on language, but "Following" is common.
+      // Let's stick to the data-testid which implies state.
+    }
+  } catch (e) {
+    // Fail silently
+  }
+  return false;
+}
+
 function hideContentIfBlocked(element, locationKey, screenName, userId) {
   // --- SECURITY GATE ---
   if (!isProUser) {
     // If not Pro, do NOT hide the tweet.
-    // Just return false, so the Flag still shows, but the Tweet stays visible.
+    return false;
+  }
+
+  // 1. Whitelist Check
+  if (whitelistUsernames.has(screenName)) {
+    // console.log(`TweetSanitizer: Allowed whitelisted user ${screenName}`);
     return false;
   }
 
   if (blockedCountries.has(locationKey)) {
+
+    // 2. Protect Following Check
+    if (protectFollowing) {
+      if (isUserFollowed(element)) {
+        // console.log(`TweetSanitizer: Allowed followed user ${screenName}`);
+        return false;
+      }
+    }
+
     // console.log(`TweetSanitizer: Blocking content from ${locationKey}`);
     let hidden = false;
     const tweetArticle = element.closest('article[data-testid="tweet"]');
