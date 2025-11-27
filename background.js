@@ -1,7 +1,7 @@
 chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
         // Open the onboard/settings page
-        chrome.tabs.create({ url: 'https://tweetsanitizer.com/welcome' });
+        chrome.tabs.create({ url: 'https://gum.new/gum/cmihc8rnk000l04kwbr6lcfuc' });
     }
 });
 
