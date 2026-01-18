@@ -822,46 +822,80 @@ async function addFlagToUsername(usernameElement, screenName) {
 
   try {
     const userNameContainer = usernameElement.querySelector('[data-testid="UserName"], [data-testid="User-Name"]');
-    const shimmerSpan = createLoadingShimmer();
-    let shimmerInserted = false;
 
+    // Create placeholder pill immediately with "?" 
+    const placeholderPill = document.createElement('span');
+    placeholderPill.setAttribute('data-twitter-flag', 'true');
+    placeholderPill.setAttribute('data-loading', 'true');
+    placeholderPill.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      margin-left: 6px;
+      padding: 1px 6px 1px 4px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(113, 118, 123, 0.3);
+      border-radius: 999px;
+      font-size: 11px;
+      vertical-align: middle;
+      gap: 0;
+    `;
+
+    // Flag placeholder
+    const flagPart = document.createElement('span');
+    flagPart.className = 'ts-flag-part';
+    flagPart.textContent = '?';
+    flagPart.style.cssText = 'color: #536471; font-size: 10px; font-weight: bold;';
+
+    // Separator
+    const separator = document.createElement('span');
+    separator.textContent = '|';
+    separator.style.cssText = 'color: rgba(113, 118, 123, 0.4); margin: 0 5px; font-size: 10px;';
+
+    // Details link (always functional)
+    const detailsLink = document.createElement('span');
+    detailsLink.textContent = 'Details';
+    detailsLink.style.cssText = 'color: #71767b; font-weight: 500; cursor: pointer; transition: color 0.15s;';
+    detailsLink.addEventListener('mouseenter', () => { detailsLink.style.color = '#1d9bf0'; });
+    detailsLink.addEventListener('mouseleave', () => { detailsLink.style.color = '#71767b'; });
+    detailsLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = placeholderPill.getBoundingClientRect();
+      showDetailsHovercard(screenName, rect);
+    });
+
+    placeholderPill.appendChild(flagPart);
+    placeholderPill.appendChild(separator);
+    placeholderPill.appendChild(detailsLink);
+
+    // Insert placeholder pill
     if (userNameContainer) {
       const handleSection = findHandleSection(userNameContainer, screenName);
       if (handleSection && handleSection.parentNode) {
-        try {
-          handleSection.parentNode.insertBefore(shimmerSpan, handleSection);
-          shimmerInserted = true;
-        } catch (e) {
-          try {
-            userNameContainer.appendChild(shimmerSpan);
-            shimmerInserted = true;
-          } catch (e2) { }
-        }
+        try { handleSection.parentNode.insertBefore(placeholderPill, handleSection); }
+        catch (e) { try { userNameContainer.appendChild(placeholderPill); } catch (e2) { } }
       } else {
-        try {
-          userNameContainer.appendChild(shimmerSpan);
-          shimmerInserted = true;
-        } catch (e) { }
+        try { userNameContainer.appendChild(placeholderPill); } catch (e) { }
       }
     }
 
+    // Now fetch the actual location
     try {
       const result = await getUserLocation(screenName, usernameElement);
       const location = result?.location;
       const userId = result?.userId;
 
-      if (shimmerInserted && shimmerSpan.parentNode) {
-        shimmerSpan.remove();
-      }
-
       if (!location) {
-        usernameElement.dataset.flagAdded = 'failed';
+        // Keep placeholder with "?"
+        placeholderPill.removeAttribute('data-loading');
+        usernameElement.dataset.flagAdded = 'true'; // Mark as done (even if no flag)
         return;
       }
 
       const flagData = getCountryFlag(location);
       if (!flagData) {
-        usernameElement.dataset.flagAdded = 'failed';
+        placeholderPill.removeAttribute('data-loading');
+        usernameElement.dataset.flagAdded = 'true';
         return;
       }
 
@@ -870,241 +904,53 @@ async function addFlagToUsername(usernameElement, screenName) {
         return;
       }
 
-      let usernameLink = null;
-      const containerForLink = userNameContainer || usernameElement.querySelector('[data-testid="UserName"], [data-testid="User-Name"]');
-
-      if (containerForLink) {
-        const containerLinks = containerForLink.querySelectorAll('a[href^="/"]');
-        for (const link of containerLinks) {
-          const text = link.textContent?.trim();
-          const href = link.getAttribute('href');
-          const match = href.match(/^\/([^\/\?]+)/);
-          if (match && match[1] === screenName) {
-            if (text === `@${screenName}` || text === screenName) {
-              usernameLink = link;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!usernameLink && containerForLink) {
-        const containerLinks = containerForLink.querySelectorAll('a[href^="/"]');
-        for (const link of containerLinks) {
-          const text = link.textContent?.trim();
-          if (text === `@${screenName}`) {
-            usernameLink = link;
-            break;
-          }
-        }
-      }
-
-      if (!usernameLink) {
-        const links = usernameElement.querySelectorAll('a[href^="/"]');
-        for (const link of links) {
-          const href = link.getAttribute('href');
-          const text = link.textContent?.trim();
-          if ((href === `/${screenName}` || href.startsWith(`/${screenName}?`)) && (text === `@${screenName}` || text === screenName)) {
-            usernameLink = link;
-            break;
-          }
-        }
-      }
-
-      if (!usernameLink) {
-        const links = usernameElement.querySelectorAll('a[href^="/"]');
-        for (const link of links) {
-          const href = link.getAttribute('href');
-          const match = href.match(/^\/([^\/\?]+)/);
-          if (match && match[1] === screenName) {
-            const hasVerificationBadge = link.closest('[data-testid="User-Name"]')?.querySelector('[data-testid="icon-verified"]');
-            if (!hasVerificationBadge || link.textContent?.trim() === `@${screenName}`) {
-              usernameLink = link;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!usernameLink) {
-        usernameElement.dataset.flagAdded = 'failed';
-        return;
-      }
-
-      const existingFlag = usernameElement.querySelector('[data-twitter-flag]');
-      if (existingFlag) {
-        usernameElement.dataset.flagAdded = 'true';
-        return;
-      }
-
-      // Create combined pill: Flag | Details
-      const flagSpan = document.createElement('span');
-      flagSpan.setAttribute('data-twitter-flag', 'true');
-      flagSpan.style.cssText = `
-        display: inline-flex;
-        align-items: center;
-        margin-left: 6px;
-        padding: 1px 6px 1px 4px;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(113, 118, 123, 0.3);
-        border-radius: 999px;
-        font-size: 11px;
-        vertical-align: middle;
-        gap: 0;
-      `;
-
-      // Flag part
-      const flagPart = document.createElement('span');
-      flagPart.style.cssText = 'display: inline-flex; align-items: center;';
-
+      // Update the flag part with actual flag
       if (flagData.type === 'text') {
         flagPart.textContent = flagData.value;
-        flagPart.style.fontSize = '10px';
-        flagPart.style.fontWeight = 'bold';
-        if (flagData.style?.color) flagPart.style.color = flagData.style.color;
-        else flagPart.style.color = '#536471';
+        flagPart.style.cssText = `
+          font-size: 9px;
+          font-weight: bold;
+          padding: 1px 5px;
+          border-radius: 3px;
+          margin-right: -2px;
+        `;
+        // Apply custom styles (background, color, border) for text labels
+        if (flagData.style) {
+          if (flagData.style.backgroundColor) flagPart.style.backgroundColor = flagData.style.backgroundColor;
+          if (flagData.style.background) flagPart.style.background = flagData.style.background;
+          if (flagData.style.color) flagPart.style.color = flagData.style.color;
+          if (flagData.style.border) flagPart.style.border = flagData.style.border;
+          if (flagData.style.textShadow) flagPart.style.textShadow = flagData.style.textShadow;
+        } else {
+          flagPart.style.color = '#536471';
+          flagPart.style.backgroundColor = 'rgba(0, 0, 0, 0.08)';
+        }
       } else {
-        // Use Twemoji for consistent rendering
+        // Use Twemoji for flag
         const emoji = flagData.value;
-        const hexCode = Array.from(emoji)
-          .map(c => c.codePointAt(0).toString(16))
-          .join('-');
-
+        const hexCode = Array.from(emoji).map(c => c.codePointAt(0).toString(16)).join('-');
         const img = document.createElement('img');
         img.src = `https://abs-0.twimg.com/emoji/v2/svg/${hexCode}.svg`;
         img.alt = emoji;
         img.draggable = false;
         img.style.cssText = 'height: 1em; width: auto; vertical-align: -0.1em;';
-        img.onerror = () => {
-          flagPart.innerHTML = '';
-          flagPart.textContent = emoji;
-        };
+        img.onerror = () => { flagPart.textContent = emoji; };
+        flagPart.textContent = '';
         flagPart.appendChild(img);
       }
 
-      // Separator
-      const separator = document.createElement('span');
-      separator.textContent = '|';
-      separator.style.cssText = 'color: rgba(113, 118, 123, 0.4); margin: 0 5px; font-size: 10px;';
+      placeholderPill.removeAttribute('data-loading');
+      usernameElement.dataset.flagAdded = 'true';
 
-      // Details link
-      const detailsLink = document.createElement('span');
-      detailsLink.textContent = 'Details';
-      detailsLink.style.cssText = `
-        color: #71767b;
-        font-weight: 500;
-        cursor: pointer;
-        transition: color 0.15s;
-      `;
-      detailsLink.addEventListener('mouseenter', () => { detailsLink.style.color = '#1d9bf0'; });
-      detailsLink.addEventListener('mouseleave', () => { detailsLink.style.color = '#71767b'; });
-      detailsLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const rect = flagSpan.getBoundingClientRect();
-        showDetailsHovercard(screenName, rect);
-      });
-
-      flagSpan.appendChild(flagPart);
-      flagSpan.appendChild(separator);
-      flagSpan.appendChild(detailsLink);
-
-      const containerForFlag = userNameContainer || usernameElement.querySelector('[data-testid="UserName"], [data-testid="User-Name"]');
-      if (!containerForFlag) {
-        usernameElement.dataset.flagAdded = 'failed';
-        return;
-      }
-
-      const handleSection = findHandleSection(containerForFlag, screenName);
-      let inserted = false;
-
-      // Check for Column Layout (Tweet Detail View)
-      let isColumnLayout = false;
-      try {
-        const style = window.getComputedStyle(containerForFlag);
-        if (style.flexDirection === 'column') {
-          isColumnLayout = true;
-        }
-      } catch (e) { }
-
-      if (isColumnLayout && handleSection && handleSection.parentNode === containerForFlag) {
-        // In column layout, insert INSIDE the name section (previous sibling)
-        // to keep it on the same line as the name
-        const nameSection = handleSection.previousElementSibling;
-        if (nameSection) {
-          try {
-            nameSection.appendChild(flagSpan);
-            inserted = true;
-          } catch (e) { }
-        }
-      }
-
-      if (!inserted && handleSection && handleSection.parentNode === containerForFlag) {
-        try {
-          containerForFlag.insertBefore(flagSpan, handleSection);
-          inserted = true;
-        } catch (e) { }
-      }
-
-      if (!inserted && handleSection && handleSection.parentNode) {
-        try {
-          const handleParent = handleSection.parentNode;
-          if (handleParent !== containerForFlag && handleParent.parentNode) {
-            handleParent.parentNode.insertBefore(flagSpan, handleParent);
-            inserted = true;
-          } else if (handleParent === containerForFlag) {
-            containerForFlag.insertBefore(flagSpan, handleSection);
-            inserted = true;
-          }
-        } catch (e) { }
-      }
-
-      if (!inserted && handleSection) {
-        try {
-          const displayNameLink = containerForFlag.querySelector('a[href^="/"]');
-          if (displayNameLink) {
-            const displayNameContainer = displayNameLink.closest('div');
-            if (displayNameContainer && displayNameContainer.parentNode) {
-              if (displayNameContainer.parentNode === handleSection.parentNode) {
-                displayNameContainer.parentNode.insertBefore(flagSpan, handleSection);
-                inserted = true;
-              } else {
-                displayNameContainer.parentNode.insertBefore(flagSpan, displayNameContainer.nextSibling);
-                inserted = true;
-              }
-            }
-          }
-        } catch (e) { }
-      }
-
-      if (!inserted) {
-        try {
-          containerForFlag.appendChild(flagSpan);
-          inserted = true;
-        } catch (e) { }
-      }
-
-      if (inserted) {
-        usernameElement.dataset.flagAdded = 'true';
-        const waitingContainers = document.querySelectorAll(`[data-flag-added="waiting"]`);
-        waitingContainers.forEach(container => {
-          const waitingUsername = extractUsername(container);
-          if (waitingUsername === screenName) {
-            addFlagToUsername(container, screenName).catch(() => { });
-          }
-        });
-      } else {
-        usernameElement.dataset.flagAdded = 'failed';
-      }
-    } catch (error) {
-      if (shimmerInserted && shimmerSpan.parentNode) {
-        shimmerSpan.remove();
-      }
-      usernameElement.dataset.flagAdded = 'failed';
-    } finally {
-      processingUsernames.delete(screenName);
+    } catch (e) {
+      // Fetch error - keep pill with "?" placeholder
+      placeholderPill?.removeAttribute?.('data-loading');
+      usernameElement.dataset.flagAdded = 'true';
     }
-  } catch (e) {
+
+  } catch (error) {
+    usernameElement.dataset.flagAdded = 'failed';
+  } finally {
     processingUsernames.delete(screenName);
   }
 }
