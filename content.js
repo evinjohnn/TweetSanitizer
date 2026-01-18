@@ -1886,3 +1886,17 @@ document.addEventListener('click', (e) => {
     }
   }
 });
+
+// Close hovercard on scroll
+window.addEventListener('scroll', () => {
+  if (detailsHovercard && detailsHovercard.classList.contains('visible')) {
+    hideDetailsHovercard();
+  }
+}, { passive: true });
+
+// Close hovercard on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && detailsHovercard && detailsHovercard.classList.contains('visible')) {
+    hideDetailsHovercard();
+  }
+});
