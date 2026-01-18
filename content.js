@@ -1953,14 +1953,39 @@ window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (event.data && event.data.type === '__accountDetailsResponse') {
     console.log('TweetSanitizer: Received __accountDetailsResponse', event.data);
-    const { requestId, data } = event.data;
+    const { requestId, data, error, retryAfter } = event.data;
     if (pendingDetailRequests.has(requestId)) {
       pendingDetailRequests.delete(requestId);
-      if (data) {
+
+      if (error === 'RATE_LIMITED') {
+        // Show rate limit message in hovercard
+        const card = getDetailsHovercard();
+        if (card.classList.contains('visible')) {
+          card.querySelectorAll('.ts-hc-val').forEach(el => {
+            el.textContent = '—';
+            el.className = 'ts-hc-val';
+          });
+          const firstVal = card.querySelector('.ts-hc-val');
+          if (firstVal) {
+            firstVal.textContent = `Rate limited. Wait ${retryAfter || 900}s`;
+            firstVal.className = 'ts-hc-val warning';
+          }
+        }
+        console.warn(`TweetSanitizer: Rate limited. Try again in ${retryAfter}s`);
+      } else if (data) {
         console.log('TweetSanitizer: Populating hovercard with data', data);
         populateDetailsHovercard(data);
       } else {
         console.log('TweetSanitizer: No data received');
+        // Show error state
+        const card = getDetailsHovercard();
+        if (card.classList.contains('visible')) {
+          const firstVal = card.querySelector('.ts-hc-val');
+          if (firstVal) {
+            firstVal.textContent = 'Error loading data';
+            firstVal.className = 'ts-hc-val warning';
+          }
+        }
       }
     }
   }

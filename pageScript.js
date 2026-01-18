@@ -8,6 +8,9 @@
     // Default fallback (Use the last known working ID)
     let currentQueryId = 'zs_jFPFT78rBpXv9Z3U2YQ';
 
+    // Global Rate Limit Guard - blocks ALL requests until reset time
+    let globalRateLimitResetTime = 0;
+
     // Function to find the ID from Twitter's own JS bundles
     async function fetchLatestQueryId() {
         try {
@@ -513,6 +516,20 @@
                 const { screenName, requestId } = event.data;
                 console.log('TweetSanitizer pageScript: Received __fetchAccountDetails for', screenName);
 
+                // CHECK RATE LIMIT BEFORE FETCHING
+                if (Date.now() < globalRateLimitResetTime) {
+                    const waitTime = Math.ceil((globalRateLimitResetTime - Date.now()) / 1000);
+                    console.warn(`TweetSanitizer: Rate limit active. Skipping request for ${screenName}. Wait ${waitTime}s`);
+                    window.postMessage({
+                        type: '__accountDetailsResponse',
+                        requestId: requestId,
+                        data: null,
+                        error: 'RATE_LIMITED',
+                        retryAfter: waitTime
+                    }, '*');
+                    return;
+                }
+
                 // Wait for headers to be ready
                 if (!headersReady) {
                     let waitCount = 0;
@@ -539,6 +556,30 @@
                         referrer: window.location.href,
                         referrerPolicy: 'origin-when-cross-origin'
                     });
+
+                    // HANDLE 429 ERROR AND SET LOCKOUT TIME
+                    if (response.status === 429) {
+                        const resetHeader = response.headers.get('x-rate-limit-reset');
+
+                        // If header exists, use it. Otherwise default to 15 minutes
+                        if (resetHeader) {
+                            globalRateLimitResetTime = parseInt(resetHeader) * 1000;
+                        } else {
+                            globalRateLimitResetTime = Date.now() + 900000; // 15 minutes
+                        }
+
+                        const waitTime = Math.ceil((globalRateLimitResetTime - Date.now()) / 1000);
+                        console.error(`TweetSanitizer: Hit 429. Pausing ALL requests for ${waitTime}s until ${new Date(globalRateLimitResetTime).toLocaleTimeString()}`);
+
+                        window.postMessage({
+                            type: '__accountDetailsResponse',
+                            requestId: requestId,
+                            data: null,
+                            error: 'RATE_LIMITED',
+                            retryAfter: waitTime
+                        }, '*');
+                        return;
+                    }
 
                     let parsedData = null;
 
@@ -577,7 +618,6 @@
                             // Created in location (from source app store)
                             let createdIn = null;
                             if (about.created_country_accurate && about.source) {
-                                // Extract country from "India Android App" or similar
                                 const match = about.source.match(/^(\w+(?:\s+\w+)?)\s+(Android|iOS|iPhone|iPad|Web)/i);
                                 if (match) {
                                     createdIn = match[1];
@@ -618,7 +658,8 @@
                     window.postMessage({
                         type: '__accountDetailsResponse',
                         requestId: requestId,
-                        data: null
+                        data: null,
+                        error: 'FETCH_ERROR'
                     }, '*');
                 }
             }
