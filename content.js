@@ -935,7 +935,6 @@ async function addFlagToUsername(usernameElement, screenName) {
         const img = document.createElement('img');
         img.src = `https://abs-0.twimg.com/emoji/v2/svg/${hexCode}.svg`;
         img.alt = emoji;
-        img.title = location || ''; // Tooltip on image
         img.draggable = false;
         img.style.cssText = 'height: 1em; width: auto; vertical-align: -0.1em; cursor: default;';
         img.onerror = () => { flagPart.textContent = emoji; };
@@ -943,8 +942,37 @@ async function addFlagToUsername(usernameElement, screenName) {
         flagPart.appendChild(img);
       }
 
-      // Set tooltip with location name on container too
-      flagPart.title = location || '';
+      // Add instant tooltip on flag hover
+      const locationName = location || '';
+      if (locationName) {
+        let tooltip = null;
+        flagPart.style.cursor = 'help';
+        flagPart.addEventListener('mouseenter', (e) => {
+          tooltip = document.createElement('div');
+          tooltip.className = 'ts-flag-tooltip';
+          tooltip.textContent = locationName;
+          tooltip.style.cssText = `
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            z-index: 9999999;
+            pointer-events: none;
+            white-space: nowrap;
+          `;
+          document.body.appendChild(tooltip);
+          const rect = flagPart.getBoundingClientRect();
+          tooltip.style.left = `${rect.left}px`;
+          tooltip.style.top = `${rect.top - tooltip.offsetHeight - 4}px`;
+        });
+        flagPart.addEventListener('mouseleave', () => {
+          if (tooltip && tooltip.parentNode) tooltip.remove();
+          tooltip = null;
+        });
+      }
 
       placeholderPill.removeAttribute('data-loading');
       usernameElement.dataset.flagAdded = 'true';
