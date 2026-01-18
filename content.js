@@ -1791,7 +1791,7 @@ function getDetailsHovercard() {
       position: fixed;
       z-index: 999999;
       width: 300px;
-      background: rgba(22, 24, 28, 0.85);
+      background: rgba(22, 24, 28, 0.65);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
       backdrop-filter: blur(24px) saturate(180%);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2030,7 +2030,7 @@ function injectDetailsPill(tweetNode) {
     padding: 1px 8px;
     background: transparent;
     border: 1px solid rgba(113, 118, 123, 0.4);
-    border-radius: 4px;
+    border-radius: 999px;
     font-size: 11px;
     font-weight: 500;
     color: #71767b;
