@@ -864,8 +864,7 @@ async function addFlagToUsername(usernameElement, screenName) {
     detailsLink.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const rect = placeholderPill.getBoundingClientRect();
-      showDetailsHovercard(screenName, rect);
+      showDetailsHovercard(screenName, placeholderPill);
     });
 
     placeholderPill.appendChild(flagPart);
@@ -1619,6 +1618,7 @@ if (document.readyState === 'loading') {
 // Hovercard state
 let detailsHovercard = null;
 let pendingDetailRequests = new Map();
+let hovercardAnchorElement = null; // Track which pill opened the hovercard
 
 // Create the hovercard element
 function getDetailsHovercard() {
@@ -1745,15 +1745,19 @@ function getDetailsHovercard() {
   return detailsHovercard;
 }
 
-function showDetailsHovercard(screenName, anchorRect) {
+function showDetailsHovercard(screenName, anchorElement) {
   console.log('TweetSanitizer: showDetailsHovercard called for', screenName);
   const card = getDetailsHovercard();
 
-  // Position card
+  // Store anchor element for scroll tracking
+  hovercardAnchorElement = anchorElement;
+
+  // Position card based on anchor element
+  const anchorRect = anchorElement.getBoundingClientRect();
   const top = anchorRect.bottom + window.scrollY + 8;
   let left = anchorRect.left;
-  if (left + 320 > window.innerWidth) {
-    left = window.innerWidth - 330;
+  if (left + 300 > window.innerWidth) {
+    left = window.innerWidth - 310;
   }
   card.style.top = `${top}px`;
   card.style.left = `${left}px`;
@@ -1783,6 +1787,7 @@ function hideDetailsHovercard() {
   if (detailsHovercard) {
     detailsHovercard.classList.remove('visible');
   }
+  hovercardAnchorElement = null;
 }
 
 function populateDetailsHovercard(data) {
@@ -1887,10 +1892,27 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Close hovercard on scroll
+// Update hovercard position on scroll, close if anchor is out of view
 window.addEventListener('scroll', () => {
-  if (detailsHovercard && detailsHovercard.classList.contains('visible')) {
-    hideDetailsHovercard();
+  if (detailsHovercard && detailsHovercard.classList.contains('visible') && hovercardAnchorElement) {
+    const anchorRect = hovercardAnchorElement.getBoundingClientRect();
+
+    // Check if anchor is still visible in viewport
+    const isInView = anchorRect.top >= -50 && anchorRect.bottom <= window.innerHeight + 50;
+
+    if (!isInView) {
+      hideDetailsHovercard();
+      return;
+    }
+
+    // Update position to follow anchor
+    const top = anchorRect.bottom + window.scrollY + 8;
+    let left = anchorRect.left;
+    if (left + 300 > window.innerWidth) {
+      left = window.innerWidth - 310;
+    }
+    detailsHovercard.style.top = `${top}px`;
+    detailsHovercard.style.left = `${left}px`;
   }
 }, { passive: true });
 
