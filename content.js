@@ -1758,13 +1758,13 @@ function getDetailsHovercard() {
   detailsHovercard.innerHTML = `
     <div class="ts-hc-header">
       <span class="ts-hc-title">Account Details</span>
-      <span class="ts-hc-close">×</span>
+      <span class="ts-hc-close"></span>
     </div>
     <div class="ts-hc-body">
       <div class="ts-hc-section">
         <div class="ts-hc-row"><span class="ts-hc-label">User ID</span><span class="ts-hc-val" data-field="userId">—</span></div>
         <div class="ts-hc-row"><span class="ts-hc-label">Created</span><span class="ts-hc-val" data-field="created">—</span></div>
-        <div class="ts-hc-row"><span class="ts-hc-label">Days on X</span><span class="ts-hc-val" data-field="daysOnX">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">Account Age</span><span class="ts-hc-val" data-field="daysOnX">—</span></div>
       </div>
       <div class="ts-hc-section">
         <div class="ts-hc-row"><span class="ts-hc-label">Location</span><span class="ts-hc-val" data-field="location">—</span></div>
@@ -1784,70 +1784,86 @@ function getDetailsHovercard() {
     </div>
   `;
 
-  // Add styles
+  // Add styles - Premium Glassmorphism
   const style = document.createElement('style');
   style.textContent = `
     #ts-details-hovercard {
       position: fixed;
       z-index: 999999;
-      width: 320px;
-      background: rgba(0, 0, 0, 0.95);
-      border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 300px;
+      background: rgba(22, 24, 28, 0.85);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      box-shadow: 
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: #e7e9ea;
       display: none;
-      backdrop-filter: blur(20px);
       overflow: hidden;
+      animation: ts-hc-fadeIn 0.15s ease-out;
+    }
+    @keyframes ts-hc-fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     #ts-details-hovercard.visible { display: block; }
     .ts-hc-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 16px;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-      background: rgba(29, 155, 240, 0.1);
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
     .ts-hc-title {
-      font-weight: 700;
-      font-size: 14px;
-      color: #1d9bf0;
+      font-weight: 600;
+      font-size: 13px;
+      color: #e7e9ea;
+      letter-spacing: -0.01em;
     }
     .ts-hc-close {
+      width: 18px;
+      height: 18px;
       cursor: pointer;
-      font-size: 20px;
-      color: #71767b;
-      line-height: 1;
+      opacity: 0.5;
+      transition: opacity 0.15s;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e7e9ea' stroke-width='2'%3E%3Cpath d='M18 6L6 18M6 6l12 12'/%3E%3C/svg%3E") center/contain no-repeat;
     }
-    .ts-hc-close:hover { color: #f4212e; }
-    .ts-hc-body { padding: 8px 0; }
+    .ts-hc-close:hover { opacity: 1; }
+    .ts-hc-body { padding: 4px 0; }
     .ts-hc-section {
-      padding: 8px 16px;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding: 6px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
     .ts-hc-section:last-child { border-bottom: none; }
     .ts-hc-row {
       display: flex;
       justify-content: space-between;
-      padding: 6px 0;
-      font-size: 13px;
+      align-items: center;
+      padding: 5px 0;
+      font-size: 12px;
     }
-    .ts-hc-label { color: #71767b; }
+    .ts-hc-label { 
+      color: #71767b;
+      font-weight: 400;
+    }
     .ts-hc-val { 
-      font-weight: 600; 
+      font-weight: 500; 
       color: #e7e9ea;
       text-align: right;
-      max-width: 180px;
+      max-width: 160px;
+      white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .ts-hc-val.verified { color: #00ba7c; }
-    .ts-hc-val.warning { color: #f4212e; }
+    .ts-hc-val.warning { color: #ff6b6b; }
     .ts-hc-val.blue { color: #1d9bf0; }
-    .ts-hc-val.gold { color: #ffd700; }
-    .ts-hc-val.loading { color: #71767b; font-style: italic; }
+    .ts-hc-val.gold { color: #ffd93d; }
+    .ts-hc-val.loading { color: #536471; }
   `;
   document.head.appendChild(style);
   document.body.appendChild(detailsHovercard);
@@ -2005,32 +2021,34 @@ function injectDetailsPill(tweetNode) {
   // Create pill element
   const pill = document.createElement('span');
   pill.className = 'ts-details-pill';
-  pill.innerHTML = '📊 Details';
+  pill.textContent = 'Details';
   pill.title = 'View account details';
   pill.style.cssText = `
     display: inline-flex;
     align-items: center;
-    gap: 4px;
     margin-left: 8px;
-    padding: 2px 10px;
-    background: rgba(29, 155, 240, 0.15);
-    border: 1px solid rgba(29, 155, 240, 0.5);
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #1d9bf0;
+    padding: 1px 8px;
+    background: transparent;
+    border: 1px solid rgba(113, 118, 123, 0.4);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #71767b;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
     vertical-align: middle;
+    letter-spacing: 0.01em;
   `;
 
   pill.addEventListener('mouseenter', () => {
-    pill.style.background = 'rgba(29, 155, 240, 0.3)';
-    pill.style.transform = 'scale(1.05)';
+    pill.style.borderColor = 'rgba(29, 155, 240, 0.6)';
+    pill.style.color = '#1d9bf0';
+    pill.style.background = 'rgba(29, 155, 240, 0.08)';
   });
   pill.addEventListener('mouseleave', () => {
-    pill.style.background = 'rgba(29, 155, 240, 0.15)';
-    pill.style.transform = 'scale(1)';
+    pill.style.borderColor = 'rgba(113, 118, 123, 0.4)';
+    pill.style.color = '#71767b';
+    pill.style.background = 'transparent';
   });
 
   pill.addEventListener('click', (e) => {
