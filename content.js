@@ -861,16 +861,24 @@ async function addFlagToUsername(usernameElement, screenName) {
     detailsLink.style.cssText = 'color: #71767b; font-weight: 500; cursor: pointer; transition: color 0.15s;';
     detailsLink.addEventListener('mouseenter', () => {
       detailsLink.style.color = '#1d9bf0';
-      showDetailsHovercard(screenName, placeholderPill, 'hover');
+      HovercardController.open({
+        anchor: placeholderPill,
+        screenName: screenName,
+        lock: false
+      });
     });
     detailsLink.addEventListener('mouseleave', () => {
       detailsLink.style.color = '#71767b';
-      if (!isHovercardLocked) hideDetailsHovercard(300);
+      HovercardController.closeWithDelay(300);
     });
     detailsLink.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      showDetailsHovercard(screenName, placeholderPill, 'click');
+      HovercardController.open({
+        anchor: placeholderPill,
+        screenName: screenName,
+        lock: true
+      });
     });
 
     placeholderPill.appendChild(flagPart);
@@ -1649,14 +1657,139 @@ if (document.readyState === 'loading') {
 
 // --- DETAILS HOVERCARD SYSTEM (Rebuilt) ---
 
-// Hovercard state
-let detailsHovercard = null;
-let pendingDetailRequests = new Map();
-let hovercardAnchorElement = null; // Track which pill opened the hovercard
-let isHovercardLocked = false; // True if opened via click
-let hoverTimeout = null; // For delayed hiding on mouseleave
+// --- DETAILS HOVERCARD SYSTEM (Controller Pattern) ---
+
+const HovercardController = {
+  card: null,
+  anchor: null,
+  locked: false,
+  requestId: null,
+  screenName: null,
+  hoverTimeout: null,
+
+  init() {
+    this.card = getDetailsHovercard();
+  },
+
+  open({ anchor, screenName, lock }) {
+    if (this.hoverTimeout && lock) {
+      clearTimeout(this.hoverTimeout);
+      this.hoverTimeout = null;
+    }
+
+    // Ignore hover if already locked on another element
+    if (this.locked && !lock && this.anchor !== anchor) {
+      return;
+    }
+
+    // Hard reset if switching anchors or re-opening
+    if (this.anchor !== anchor) {
+      this.reset();
+      this.anchor = anchor;
+      this.screenName = screenName;
+
+      // Reset content to loading
+      this.card.querySelectorAll('.ts-hc-val').forEach(el => {
+        el.textContent = '...';
+        el.className = 'ts-hc-val loading';
+      });
+
+      this.card.classList.add('visible');
+      this.position();
+      this.fetchDetails(screenName);
+    } else if (!this.card.classList.contains('visible')) {
+      // Re-opening same anchor
+      this.card.classList.add('visible');
+      this.position();
+    }
+
+    // Update lock state - click always upgrades to locked
+    if (lock) {
+      this.locked = true;
+    }
+  },
+
+  close(force = false) {
+    if (this.hoverTimeout) {
+      clearTimeout(this.hoverTimeout);
+      this.hoverTimeout = null;
+    }
+
+    if (this.locked && !force) return;
+    this.reset();
+  },
+
+  closeWithDelay(delay = 300) {
+    if (this.locked) return;
+
+    if (this.hoverTimeout) clearTimeout(this.hoverTimeout);
+    this.hoverTimeout = setTimeout(() => {
+      this.close();
+    }, delay);
+  },
+
+  reset() {
+    this.locked = false;
+    this.anchor = null;
+    this.requestId = null;
+    this.screenName = null;
+    this.card?.classList.remove('visible');
+  },
+
+  position() {
+    if (!this.anchor || !this.card) return;
+    const rect = this.anchor.getBoundingClientRect();
+    const top = rect.bottom + window.scrollY + 8;
+    let left = rect.left;
+    if (left + 300 > window.innerWidth) {
+      left = window.innerWidth - 310;
+    }
+    this.card.style.top = `${top}px`;
+    this.card.style.left = `${left}px`;
+  },
+
+  fetchDetails(screenName) {
+    // Generate simple unique ID
+    const id = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.requestId = id;
+
+    window.postMessage({
+      type: '__fetchAccountDetails',
+      screenName,
+      requestId: id
+    }, '*');
+  },
+
+  onData({ requestId, data, error, retryAfter }) {
+    if (requestId !== this.requestId) return;
+
+    if (error === 'RATE_LIMITED') {
+      this.card.querySelectorAll('.ts-hc-val').forEach(el => {
+        el.textContent = '—';
+        el.className = 'ts-hc-val';
+      });
+      const firstVal = this.card.querySelector('.ts-hc-val');
+      if (firstVal) {
+        firstVal.textContent = `Wait ${retryAfter}s`;
+        firstVal.className = 'ts-hc-val warning';
+      }
+      return;
+    }
+
+    if (data) {
+      populateDetailsHovercard(data);
+    } else {
+      const firstVal = this.card.querySelector('.ts-hc-val');
+      if (firstVal) {
+        firstVal.textContent = 'Error';
+        firstVal.className = 'ts-hc-val warning';
+      }
+    }
+  }
+};
 
 // Create the hovercard element
+let detailsHovercard = null; // Keep this declaration for getDetailsHovercard to assign to
 function getDetailsHovercard() {
   if (detailsHovercard) return detailsHovercard;
 
@@ -1776,118 +1909,26 @@ function getDetailsHovercard() {
 
   // Close button
   detailsHovercard.querySelector('.ts-hc-close').addEventListener('click', () => {
-    forceCloseHovercard();
+    HovercardController.close(true);
   });
 
   // Keep alive on hover
   detailsHovercard.addEventListener('mouseenter', () => {
-    if (hoverTimeout) clearTimeout(hoverTimeout);
+    if (HovercardController.hoverTimeout) {
+      clearTimeout(HovercardController.hoverTimeout);
+      HovercardController.hoverTimeout = null;
+    }
   });
   detailsHovercard.addEventListener('mouseleave', () => {
-    if (!isHovercardLocked) hideDetailsHovercard(300);
+    HovercardController.closeWithDelay(300);
   });
 
   return detailsHovercard;
 }
 
-function forceCloseHovercard() {
-  isHovercardLocked = false;
-  hovercardAnchorElement = null;
-  pendingDetailRequests.clear();
-  if (detailsHovercard) detailsHovercard.classList.remove('visible');
-}
-
-function showDetailsHovercard(screenName, anchorElement, mode = 'hover') {
-  if (hoverTimeout) {
-    clearTimeout(hoverTimeout);
-    hoverTimeout = null;
-  }
-
-  // If locked on another element, ignore hover
-  if (isHovercardLocked && mode === 'hover' && hovercardAnchorElement !== anchorElement) {
-    return;
-  }
-
-  // If clicking, update lock state
-  if (mode === 'click') {
-    isHovercardLocked = true;
-  }
-
-  // If switching elements or force showing
-  if (hovercardAnchorElement !== anchorElement) {
-    // 🔥 FULL RESET when switching users
-    isHovercardLocked = (mode === 'click');
-    hovercardAnchorElement = anchorElement;
-
-    // Cancel all pending requests
-    pendingDetailRequests.clear();
-
-    // Reset UI immediately
-    const card = getDetailsHovercard();
-    card.classList.remove('visible');
-
-    // Reset content to loading
-    card.querySelectorAll('.ts-hc-val').forEach(el => {
-      el.textContent = '...';
-      el.className = 'ts-hc-val loading';
-    });
-
-    // Request data from pageScript
-    const requestId = `details_${Date.now()}_${Math.random()}`;
-    window.postMessage({
-      type: '__fetchAccountDetails',
-      screenName: screenName,
-      requestId: requestId
-    }, '*');
-
-    // Store pending request with anchor validation
-    pendingDetailRequests.set(requestId, {
-      screenName,
-      anchorElement
-    });
-  }
-
-  const card = getDetailsHovercard();
-
-  // Position card based on anchor element
-  const anchorRect = anchorElement.getBoundingClientRect();
-  const top = anchorRect.bottom + window.scrollY + 8;
-  let left = anchorRect.left;
-  if (left + 300 > window.innerWidth) {
-    left = window.innerWidth - 310;
-  }
-  card.style.top = `${top}px`;
-  card.style.left = `${left}px`;
-
-  card.classList.add('visible');
-}
-
-function hideDetailsHovercard(delay = 0, force = false) {
-  if (hoverTimeout) clearTimeout(hoverTimeout);
-
-  if (force) {
-    forceCloseHovercard();
-    return;
-  }
-
-  if (delay > 0) {
-    hoverTimeout = setTimeout(() => {
-      if (!isHovercardLocked) {
-        if (detailsHovercard) detailsHovercard.classList.remove('visible');
-        hovercardAnchorElement = null;
-      }
-    }, delay);
-  } else {
-    if (!isHovercardLocked) {
-      if (detailsHovercard) detailsHovercard.classList.remove('visible');
-      hovercardAnchorElement = null;
-    }
-  }
-}
-
 function populateDetailsHovercard(data) {
-  const card = getDetailsHovercard();
-  // We don't check visible class here because it might be loading, just ensure anchor matches request below
+  const card = HovercardController.card;
+  if (!card || !card.classList.contains('visible')) return;
 
   const setValue = (field, value, className = '') => {
     const el = card.querySelector(`[data-field="${field}"]`);
@@ -1943,93 +1984,42 @@ function populateDetailsHovercard(data) {
   setValue('affiliation', data.affiliation || 'None');
 }
 
+// Initialize controller
+HovercardController.init();
+
 // Listen for details response from pageScript
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (event.data && event.data.type === '__accountDetailsResponse') {
-    console.log('TweetSanitizer: Received __accountDetailsResponse', event.data);
-    const { requestId, data, error, retryAfter } = event.data;
-
-    const requestMeta = pendingDetailRequests.get(requestId);
-    if (!requestMeta) return;
-
-    pendingDetailRequests.delete(requestId);
-
-    // ❌ Ignore stale responses
-    if (requestMeta.anchorElement !== hovercardAnchorElement) {
-      return;
-    }
-
-    if (error === 'RATE_LIMITED') {
-      // Show rate limit message in hovercard
-      const card = getDetailsHovercard();
-      if (card.classList.contains('visible')) {
-        card.querySelectorAll('.ts-hc-val').forEach(el => {
-          el.textContent = '—';
-          el.className = 'ts-hc-val';
-        });
-
-        // Show specific error using a convenient field or modal
-        const firstVal = card.querySelector('.ts-hc-val');
-        if (firstVal) {
-          firstVal.textContent = `Wait ${retryAfter}s`;
-          firstVal.className = 'ts-hc-val warning';
-        }
-      }
-    } else if (data) {
-      console.log('TweetSanitizer: Populating hovercard with data', data);
-      populateDetailsHovercard(data);
-    } else {
-      console.log('TweetSanitizer: No data received');
-      // Show error state
-      const card = getDetailsHovercard();
-      if (card.classList.contains('visible')) {
-        const firstVal = card.querySelector('.ts-hc-val');
-        if (firstVal) {
-          firstVal.textContent = 'Error';
-          firstVal.className = 'ts-hc-val warning';
-        }
-      }
-    }
+    // Forward to controller
+    HovercardController.onData(event.data);
   }
 });
 
 // Close hovercard when clicking outside
 document.addEventListener('click', (e) => {
-  if (detailsHovercard && detailsHovercard.classList.contains('visible')) {
-    if (!detailsHovercard.contains(e.target) && !e.target.closest('[data-twitter-flag]')) {
-      forceCloseHovercard(); // Force hide
+  if (HovercardController.card?.classList.contains('visible')) {
+    if (!HovercardController.card.contains(e.target) && !e.target.closest('[data-twitter-flag]')) {
+      HovercardController.close(true); // Force close
     }
   }
 });
 
 // Update hovercard position on scroll, close if anchor is out of view
 window.addEventListener('scroll', () => {
-  if (detailsHovercard && detailsHovercard.classList.contains('visible') && hovercardAnchorElement) {
-    const anchorRect = hovercardAnchorElement.getBoundingClientRect();
+  HovercardController.position();
 
-    // Check if anchor is still visible in viewport
-    const isInView = anchorRect.top >= -50 && anchorRect.bottom <= window.innerHeight + 50;
-
-    if (!isInView) {
-      forceCloseHovercard(); // Force hide if out of view
-      return;
+  if (HovercardController.anchor) {
+    const rect = HovercardController.anchor.getBoundingClientRect();
+    if (rect.bottom < -50 || rect.top > window.innerHeight + 50) {
+      HovercardController.close(true);
     }
-
-    // Update position to follow anchor
-    const top = anchorRect.bottom + window.scrollY + 8;
-    let left = anchorRect.left;
-    if (left + 300 > window.innerWidth) {
-      left = window.innerWidth - 310;
-    }
-    detailsHovercard.style.top = `${top}px`;
-    detailsHovercard.style.left = `${left}px`;
   }
 }, { passive: true });
 
 // Close hovercard on Escape key
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && detailsHovercard && detailsHovercard.classList.contains('visible')) {
-    forceCloseHovercard(); // Force hide
+  if (e.key === 'Escape') {
+    HovercardController.close(true);
   }
 });
