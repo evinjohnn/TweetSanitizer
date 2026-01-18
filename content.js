@@ -1849,15 +1849,16 @@ function getDetailsHovercard() {
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: #e7e9ea;
-      display: none;
-      overflow: hidden;
-      animation: ts-hc-fadeIn 0.15s ease-out;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-4px);
+      transition: opacity 0.2s ease-out, transform 0.2s ease-out;
     }
-    @keyframes ts-hc-fadeIn {
-      from { opacity: 0; transform: translateY(-4px); }
-      to { opacity: 1; transform: translateY(0); }
+    #ts-details-hovercard.visible { 
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
     }
-    #ts-details-hovercard.visible { display: block; }
     .ts-hc-header {
       display: flex;
       justify-content: space-between;
@@ -2020,12 +2021,20 @@ document.addEventListener('click', (e) => {
 // Update hovercard position on scroll
 window.addEventListener('scroll', () => {
   HovercardController.position();
+
+  if (HovercardController.anchor) {
+    const rect = HovercardController.anchor.getBoundingClientRect();
+    if (rect.bottom < -50 || rect.top > window.innerHeight + 50) {
+      HovercardController.close(true);
+    }
+  }
 }, { passive: true });
 
 // Update position on resize
 window.addEventListener('resize', () => {
   HovercardController.position();
 }, { passive: true });
+
 
 // Close hovercard on Escape key
 document.addEventListener('keydown', (e) => {
