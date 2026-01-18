@@ -95,15 +95,16 @@ const CLOUD_API_URL = 'https://tweet-sanitizer-api.tweetsanitizer.workers.dev';
 const BATCH_SIZE = 5; // Process 5 items at a time
 const UPLOAD_QUEUE_KEY = 'pending_uploads';
 // Removed UPLOAD_INTERVAL and uploadIntervalRef as upload is now handled by background.js
-const requestQueue = [];
-const MAX_QUEUE_SIZE = 150; // Increased limit to prevent dropping items during fast scroll
-const QUEUE_ITEM_TIMEOUT = 30000; // 30 seconds max in queuese;
-let isProcessingQueue = false;
-let lastRequestTime = 0;
-let currentRequestInterval = 100;
-let maxConcurrentRequests = 20;
-let activeRequests = 0;
-let rateLimitResetTime = 0;
+// Request Queue moved to background.js
+// const requestQueue = []; 
+// const MAX_QUEUE_SIZE = 150; 
+// const QUEUE_ITEM_TIMEOUT = 30000;
+// let isProcessingQueue = false;
+// let lastRequestTime = 0;
+// let currentRequestInterval = 100;
+// let maxConcurrentRequests = 20;
+// let activeRequests = 0;
+// let rateLimitResetTime = 0;
 
 let mutationObserver = null;
 let visibilityObserver = null;
@@ -668,6 +669,7 @@ function makeLocationRequest(screenName) {
 }
 
 async function getUserLocation(screenName, element) {
+  // Check local cache first
   if (locationCache.has(screenName)) {
     const cached = locationCache.get(screenName);
     if (cached !== null && cached !== undefined) {
@@ -680,35 +682,33 @@ async function getUserLocation(screenName, element) {
     }
   }
 
-  if (requestQueue.length >= MAX_QUEUE_SIZE) {
-    let furthestIdx = -1;
-    let maxDist = -1;
-    for (let i = 0; i < requestQueue.length; i++) {
-      const dist = getDistanceToCenter(requestQueue[i].element);
-      if (dist > maxDist) {
-        maxDist = dist;
-        furthestIdx = i;
+  // Delegate to Background Queue
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({
+      action: 'FETCH_USER_DETAILS',
+      username: screenName
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        // console.error('TweetSanitizer: BG Error', chrome.runtime.lastError);
+        resolve({ location: null, userId: null });
+        return;
       }
-    }
-    const newDist = getDistanceToCenter(element);
-    if (furthestIdx !== -1 && newDist < maxDist) {
-      requestQueue.splice(furthestIdx, 1);
-    } else {
-      return { location: null, userId: null };
-    }
-  }
 
-  return new Promise((resolve, reject) => {
-    requestQueue.push({
-      screenName,
-      element,
-      resolve,
-      reject,
-      timestamp: Date.now(),
-      retryCount: 0,
-      processAfter: 0
+      if (!response || response.error) {
+        resolve({ location: null, userId: null });
+      } else {
+        const loc = response.location || response.createdInLocation || null;
+        const uid = response.userId || null;
+
+        // Cache it locally too 
+        saveCacheEntry(screenName, { location: loc, userId: uid });
+
+        resolve({ location: loc, userId: uid });
+
+        // Queue for upload (optional, if we still want to crowd-source)
+        if (loc) queueForUpload(screenName, loc);
+      }
     });
-    processRequestQueue();
   });
 }
 
@@ -746,15 +746,31 @@ function extractUsername(element) {
     const usernameLower = potentialUsername.toLowerCase();
     if (text.startsWith('@')) return potentialUsername;
     if (linkText === usernameLower || linkText === `@${usernameLower}`) return potentialUsername;
+
+    // Check if it's inside a User-Name container and is the second link (typically the handle)
     const parent = link.closest('[data-testid="UserName"], [data-testid="User-Name"]');
     if (parent) {
-      if (potentialUsername.length > 0 && potentialUsername.length < 20 && !potentialUsername.includes('/')) return potentialUsername;
+      const parentLinks = parent.querySelectorAll('a[href^="/"]');
+      if (parentLinks.length > 0 && parentLinks[parentLinks.length - 1] === link) {
+        return potentialUsername;
+      }
     }
+
     if (text && text.trim().startsWith('@')) {
       const atUsername = text.trim().substring(1);
       if (atUsername === potentialUsername) return potentialUsername;
     }
+
+    if (potentialUsername.length > 0 && potentialUsername.length < 20 && !potentialUsername.includes('/')) {
+      // Only return if it's likely the author (e.g. inside header) 
+      // or if we have no better guess. But 'return potentialUsername' here is aggressive.
+      // Let's rely on the explicit checks above (text matches handle, or inside User-Name).
+      // However, to mimic previous behavior if it was working:
+      // return potentialUsername; 
+      // I'll leave it out for now to avoid false positives on mentions in tweet text.
+    }
   }
+
   const textContent = element.textContent || '';
   const atMentionMatches = textContent.matchAll(/@([a-zA-Z0-9_]+)/g);
   for (const match of atMentionMatches) {
@@ -821,7 +837,10 @@ async function addFlagToUsername(usernameElement, screenName) {
   processingUsernames.add(screenName);
 
   try {
-    const userNameContainer = usernameElement.querySelector('[data-testid="UserName"], [data-testid="User-Name"]');
+    let userNameContainer = usernameElement.querySelector('[data-testid="UserName"], [data-testid="User-Name"]');
+    if (!userNameContainer && usernameElement.matches && (usernameElement.matches('[data-testid="UserName"]') || usernameElement.matches('[data-testid="User-Name"]'))) {
+      userNameContainer = usernameElement;
+    }
 
     // Create placeholder pill immediately with "?" 
     const placeholderPill = document.createElement('span');
@@ -1760,11 +1779,23 @@ const HovercardController = {
     const id = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.requestId = id;
 
-    window.postMessage({
-      type: '__fetchAccountDetails',
-      screenName,
-      requestId: id
-    }, '*');
+    chrome.runtime.sendMessage({
+      action: 'FETCH_USER_DETAILS',
+      username: screenName
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        // console.error('TweetSanitizer: BG Error', chrome.runtime.lastError);
+        return;
+      }
+
+      // Handle response
+      this.onData({
+        requestId: id,
+        data: response && !response.error ? response : null,
+        error: response?.error,
+        retryAfter: response?.retryAfter
+      });
+    });
   },
 
   onData({ requestId, data, error, retryAfter }) {

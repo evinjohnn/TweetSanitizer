@@ -134,7 +134,18 @@ async function processUploadQueue() {
         // 2. Chunking (Max 50 items per request to avoid server reject/timeout)
         // We only take the first 50. The rest will stay in queue and trigger again later.
         const chunkUsernames = usernames.slice(0, 50);
-        const payload = chunkUsernames.map(u => ({ username: u, location: queue[u] }));
+
+        // Enhance payload with full data from Cache if available
+        const payload = [];
+        for (const u of chunkUsernames) {
+            const cached = await globalCache.get(u);
+            if (cached) {
+                payload.push({ username: u, location: cached.location, data: cached });
+            } else {
+                // Fallback to simple queue data if cache missing (should differ rarely)
+                payload.push({ username: u, location: queue[u] });
+            }
+        }
 
         // 3. Send Batch
         const response = await fetch(`${CLOUD_API_URL}/submit`, {
@@ -347,6 +358,155 @@ function parseXResponse(json) {
     };
 }
 
+// --- CENTRALIZED REQUEST QUEUE & DEDUPE ---
+
+class UserCache {
+    constructor(ttlDays = 7) {
+        this.ttlMs = ttlDays * 24 * 60 * 60 * 1000;
+        this.prefix = 'user_cache_';
+    }
+
+    async get(username) {
+        try {
+            const key = this.prefix + username;
+            const result = await chrome.storage.local.get(key);
+            const entry = result[key];
+
+            if (!entry) return null;
+
+            if (Date.now() - entry.timestamp > this.ttlMs) {
+                // Expired
+                chrome.storage.local.remove(key);
+                return null;
+            }
+
+            return entry.data;
+        } catch (e) {
+            console.error('UserCache read error', e);
+            return null;
+        }
+    }
+
+    async set(username, data) {
+        try {
+            const key = this.prefix + username;
+            const entry = {
+                timestamp: Date.now(),
+                data: data
+            };
+            await chrome.storage.local.set({ [key]: entry });
+        } catch (e) {
+            console.error('UserCache write error', e);
+        }
+    }
+}
+
+class RequestQueue {
+    constructor(maxConcurrent = 5, minInterval = 300) {
+        this.maxConcurrent = maxConcurrent;
+        this.minInterval = minInterval;
+        this.queue = [];
+        this.activeRequests = 0;
+        this.lastRequestTime = 0;
+        this.rateLimitReset = 0; // Timestamp when we can start again
+    }
+
+    async process() {
+        // 1. If we are paused due to 429, wait until reset time
+        const now = Date.now();
+        if (this.rateLimitReset > now) {
+            const waitTime = Math.min(this.rateLimitReset - now, 60000);
+            if (!this.pausedTimeout) {
+                console.log(`TweetSanitizer: Queue paused until ${new Date(this.rateLimitReset).toLocaleTimeString()}`);
+                this.pausedTimeout = setTimeout(() => {
+                    this.pausedTimeout = null;
+                    this.process();
+                }, waitTime);
+            }
+            return;
+        }
+
+        // 2. Enforce minimum interval between request starts
+        const timeSinceLast = now - this.lastRequestTime;
+        if (timeSinceLast < this.minInterval) {
+            if (!this.intervalTimeout) {
+                this.intervalTimeout = setTimeout(() => {
+                    this.intervalTimeout = null;
+                    this.process();
+                }, this.minInterval - timeSinceLast);
+            }
+            return;
+        }
+
+        // 3. check concurrency
+        if (this.activeRequests >= this.maxConcurrent) return;
+
+        // 4. Process next item
+        const item = this.queue.shift();
+        if (item) {
+            this.activeRequests++;
+            this.lastRequestTime = Date.now();
+
+            // Execute the request
+            item.execute().finally(() => {
+                this.activeRequests--;
+                this.process(); // Trigger next
+            });
+
+            // Try to schedule another one immediately if we have concurrency slots
+            this.process();
+        }
+    }
+
+    add(requestFunction) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({
+                execute: async () => {
+                    try {
+                        const result = await requestFunction();
+                        resolve(result);
+                    } catch (error) {
+                        // Check for Rate Limit Error thrown by fetch logic
+                        if (error.status === 429 || error.code === 'RATE_LIMITED') {
+                            // Use retry-after header if available in error object, else default 15m
+                            const retryAfter = error.retryAfter || 900000;
+                            this.rateLimitReset = Date.now() + retryAfter;
+                        }
+                        reject(error);
+                    }
+                }
+            });
+            this.process();
+        });
+    }
+}
+
+class RequestDeduplicator {
+    constructor() {
+        this.pending = new Map();
+    }
+
+    dedupe(key, fetchFunction) {
+        if (this.pending.has(key)) {
+            // Return existing promise
+            return this.pending.get(key);
+        }
+
+        const promise = fetchFunction().finally(() => {
+            this.pending.delete(key);
+        });
+
+        this.pending.set(key, promise);
+        return promise;
+    }
+}
+
+// Initialize Global Instances
+const globalQueue = new RequestQueue();
+const globalDeduplicator = new RequestDeduplicator();
+const globalCache = new UserCache();
+
+
 // 3. Fetch User Details
 const GRAPHQL_ID = "zs_jFPFT78rBpXv9Z3U2YQ"; // Must match pageScript.js
 const API_URL = "https://x.com/i/api/graphql";
@@ -358,7 +518,7 @@ async function fetchDetailedUserData(screenName) {
         const csrf = keys.ts_api_csrf;
 
         if (!auth || !csrf) {
-            console.warn('TweetSanitizer: Missing headers for fetch');
+            // console.warn('TweetSanitizer: Missing headers for fetch');
             return null;
         }
 
@@ -376,6 +536,23 @@ async function fetchDetailedUserData(screenName) {
             }
         });
 
+        if (response.status === 429) {
+            const resetHeader = response.headers.get('x-rate-limit-reset');
+            let retryAfter = 900000; // 15 mins default
+            if (resetHeader) {
+                // resetHeader is unix timestamp in seconds
+                const resetTime = parseInt(resetHeader) * 1000;
+                retryAfter = Math.max(0, resetTime - Date.now());
+            }
+
+            // Throw special error object for Queue
+            const err = new Error('Rate Limit');
+            err.status = 429;
+            err.code = 'RATE_LIMITED';
+            err.retryAfter = retryAfter;
+            throw err;
+        }
+
         if (!response.ok) {
             console.error('TweetSanitizer: Fetch failed', response.status);
             return null;
@@ -384,6 +561,7 @@ async function fetchDetailedUserData(screenName) {
         const json = await response.json();
         return parseXResponse(json);
     } catch (e) {
+        if (e.status === 429) throw e; // Re-throw rate limit
         console.error("TweetSanitizer: Fetch error", e);
         return null;
     }
@@ -392,9 +570,36 @@ async function fetchDetailedUserData(screenName) {
 // 4. Handle Message from Content Script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'FETCH_USER_DETAILS') {
-        fetchDetailedUserData(message.username).then(data => {
-            sendResponse(data);
+        const { username } = message;
+
+        // 1. Check Global Cache First
+        globalCache.get(username).then(cachedData => {
+            if (cachedData) {
+                sendResponse(cachedData);
+                return;
+            }
+
+            // 2. Not in cache? Fetch via Queue
+            // Use Deduplicator -> Queue -> Fetch
+            globalDeduplicator.dedupe(username, () => {
+                return globalQueue.add(() => fetchDetailedUserData(username));
+            })
+                .then(data => {
+                    // 3. Save to Cache on success
+                    if (data) {
+                        globalCache.set(username, data);
+                    }
+                    sendResponse(data);
+                })
+                .catch(err => {
+                    if (err.status === 429) {
+                        sendResponse({ error: 'RATE_LIMITED', retryAfter: err.retryAfter });
+                    } else {
+                        sendResponse(null);
+                    }
+                });
         });
+
         return true; // Keep channel open
     }
 });
