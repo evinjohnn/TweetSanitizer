@@ -9,6 +9,20 @@ function isExtensionContextValid() {
   try { return chrome.runtime?.id !== undefined; } catch { return false; }
 }
 
+// --- Analytics Helper ---
+function trackEvent(eventName, params = {}) {
+  if (isExtensionContextValid()) {
+    try {
+      chrome.runtime.sendMessage({
+        action: 'TRACK_EVENT',
+        payload: { name: eventName, params }
+      });
+    } catch (e) {
+      // Ignore errors (e.g. if extension context invalid)
+    }
+  }
+}
+
 let isProUser = false; // Default to locked
 
 // Check license with Server on startup (Security Best Practice)
@@ -87,7 +101,7 @@ const QUEUE_ITEM_TIMEOUT = 30000; // 30 seconds max in queuese;
 let isProcessingQueue = false;
 let lastRequestTime = 0;
 let currentRequestInterval = 100;
-let maxConcurrentRequests = 5;
+let maxConcurrentRequests = 20;
 let activeRequests = 0;
 let rateLimitResetTime = 0;
 
@@ -292,9 +306,10 @@ function hideContentIfBlocked(element, locationKey, screenName, userId) {
         } else {
           // Fallback: Hide the username element itself and its parent if possible
           // This ensures we don't leave a "blank" unflagged user visible
-          element.style.setProperty('display', 'none', 'important');
-          if (element.parentElement) element.parentElement.style.setProperty('display', 'none', 'important');
-          hidden = true;
+          // element.style.setProperty('display', 'none', 'important');
+          // if (element.parentElement) element.parentElement.style.setProperty('display', 'none', 'important');
+          // hidden = true;
+          // COMMENTED OUT: Hiding the username itself looks broken. Better to leave it visible if we can't hide the container.
         }
       }
     }
@@ -302,7 +317,7 @@ function hideContentIfBlocked(element, locationKey, screenName, userId) {
     if (hidden) {
       // console.log('TweetSanitizer: Visually hidden content for', screenName);
     } else {
-      console.warn('TweetSanitizer: Failed to visually hide content for', screenName);
+      // console.warn('TweetSanitizer: Failed to visually hide content for', screenName);
     }
 
     if (autoMuteEnabled) {
@@ -430,10 +445,16 @@ async function queueForUpload(username, location) {
 
 // Smart Strategy Selector
 function getFetchStrategy() {
-  // 1. Initial Load: Use Direct API for first 30 items (Speed & Reliability)
-  if (totalItemsProcessed < 30) return 'DIRECT';
+  // OLD DANGEROUS WAY:
+  // if (totalItemsProcessed < 30) return 'DIRECT'; 
+
+  // NEW SAFE WAY:
+  // Only use Direct for the very first few items to make it feel "instant",
+  // but switch to Cloud immediately to save API calls.
+  if (totalItemsProcessed < 5) return 'DIRECT';
 
   // 2. Fast Scroll: Use Direct API (Avoid Cloud Miss Latency)
+  // You might even want to disable this if 429s are frequent
   if (scrollVelocity > FAST_SCROLL_THRESHOLD) return 'DIRECT';
 
   // 3. Normal/Idle: Use Hybrid (Cloud Batch -> Fallback) (Efficiency)
@@ -442,211 +463,183 @@ function getFetchStrategy() {
 
 // Process request queue with Smart Strategy
 async function processRequestQueue() {
-  if (isProcessingQueue || requestQueue.length === 0) {
+  if (isProcessingQueue) {
+    return;
+  }
+  isProcessingQueue = true;
+
+  try {
+    // Clean up timed out items from queue
+    const cleanupTime = Date.now();
+    for (let i = requestQueue.length - 1; i >= 0; i--) {
+      if (cleanupTime - requestQueue[i].timestamp > QUEUE_ITEM_TIMEOUT) {
+        const item = requestQueue[i];
+        requestQueue.splice(i, 1);
+        item.resolve({ location: null, userId: null });
+      }
+    }
+
+    // PRIORITY LOGIC: Sort queue by distance to center
+    requestQueue.sort((a, b) => {
+      const distA = getDistanceToCenter(a.element);
+      const distB = getDistanceToCenter(b.element);
+      return distA - distB;
+    });
+
+    const isTwitterRateLimited = rateLimitResetTime > 0 && Math.floor(Date.now() / 1000) < rateLimitResetTime;
+
+    // Dispatch Loop: Fire requests until we hit concurrency limit or queue is empty
+    while (activeRequests < maxConcurrentRequests && requestQueue.length > 0) {
+      const strategy = getFetchStrategy();
+      const now = Date.now();
+
+      if (strategy === 'DIRECT') {
+        // --- DIRECT STRATEGY ---
+        const readyIndex = requestQueue.findIndex(req => !req.processAfter || req.processAfter <= now);
+
+        if (readyIndex === -1) {
+          // No items ready for direct (all delaying), break loop to avoid spin
+          break;
+        }
+
+        const request = requestQueue.splice(readyIndex, 1)[0];
+        activeRequests++;
+
+        // Fire and forget (handled by callback)
+        processDirectItem(request, isTwitterRateLimited).finally(() => {
+          activeRequests--;
+          processRequestQueue(); // Trigger next item
+        });
+
+      } else {
+        // --- HYBRID STRATEGY ---
+        // Collect batch
+        const batch = [];
+        let i = 0;
+        // Look for ready items
+        while (batch.length < BATCH_SIZE && i < requestQueue.length) {
+          const req = requestQueue[i];
+          if (!req.processAfter || req.processAfter <= now) {
+            batch.push(requestQueue.splice(i, 1)[0]);
+            // Don't increment i
+          } else {
+            i++;
+          }
+        }
+
+        if (batch.length === 0) {
+          break; // No ready items for batch
+        }
+
+        activeRequests++; // Count 1 batch as 1 active request slot
+
+        // Fire and forget
+        processBatch(batch, isTwitterRateLimited).finally(() => {
+          activeRequests--;
+          processRequestQueue();
+        });
+      }
+    }
+
+  } finally {
+    isProcessingQueue = false;
+  }
+}
+
+async function processDirectItem(request, isTwitterRateLimited) {
+  const { screenName, resolve, reject } = request;
+
+  if (isTwitterRateLimited && request.retryCount === 0) {
+    resolve({ location: null, userId: null });
     return;
   }
 
-  // Filter out items that are not ready yet (retry delay)
-  const now = Date.now();
-  // We need to check if the *next* item is ready. If not, we shouldn't block the queue, 
-  // but since we sort by distance, we might want to skip over delayed items.
-  // Let's just filter the queue for ready items for this run? 
-  // No, splicing is dangerous while iterating. 
-  // Better: When picking an item, check processAfter.
+  try {
+    const result = await makeLocationRequest(screenName);
+    if (result.isRateLimited) {
+      // Fallback: Try Cloud API before giving up/retrying
+      try {
+        const cloudResults = await fetchFromCloud([screenName]);
+        const cloudLocation = cloudResults ? cloudResults[screenName] : null;
 
-
-  // Check if we're rate limited (affects fallback/direct only)
-  const isTwitterRateLimited = rateLimitResetTime > 0 && Math.floor(Date.now() / 1000) < rateLimitResetTime;
-
-  isProcessingQueue = true;
-
-  // Clean up timed out items from queue
-  // Clean up timed out items from queue
-  // Reuse 'now' from line 360
-  // const now = Date.now(); // Already declared
-  // Actually, let's just use the variable we already have.
-  // But wait, line 360 'now' is in the same scope.
-  // Let's just remove the declaration line or update the value if needed.
-  // Since we want fresh time, let's just update the variable if it was let, but it was const.
-  // So we must rename this one too.
-  const cleanupTime = Date.now();
-  let cleanedCount = 0;
-  for (let i = requestQueue.length - 1; i >= 0; i--) {
-    if (cleanupTime - requestQueue[i].timestamp > QUEUE_ITEM_TIMEOUT) {
-      const item = requestQueue[i];
-      requestQueue.splice(i, 1);
-      item.resolve({ location: null, userId: null });
-      cleanedCount++;
-    }
-  }
-
-  if (cleanedCount > 0) {
-    // console.log(`TweetSanitizer: Cleaned ${cleanedCount} timed out items from queue`);
-  }
-
-  // PRIORITY LOGIC: Sort queue by distance to center
-  requestQueue.sort((a, b) => {
-    const distA = getDistanceToCenter(a.element);
-    const distB = getDistanceToCenter(b.element);
-    return distA - distB;
-  });
-
-  const strategy = getFetchStrategy();
-
-  if (strategy === 'DIRECT') {
-    // --- DIRECT STRATEGY (Single Item, Twitter API) ---
-    if (activeRequests < maxConcurrentRequests) {
-      // Find first ready item
-      const directTime = Date.now();
-      const readyIndex = requestQueue.findIndex(req => !req.processAfter || req.processAfter <= directTime);
-
-      if (readyIndex === -1) {
-        // No items ready, try again later
-        isProcessingQueue = false;
-        setTimeout(processRequestQueue, 1000);
-        return;
+        if (cloudLocation) {
+          // HIT: Found in Cloud despite 429 on Twitter
+          resolve({ location: cloudLocation, userId: null });
+          saveCacheEntry(screenName, { location: cloudLocation, userId: null });
+          totalItemsProcessed++;
+          return;
+        }
+      } catch (e) {
+        // Cloud failed too, proceed to retry logic
       }
 
-      const request = requestQueue.splice(readyIndex, 1)[0];
-      const { screenName, resolve, reject } = request;
+      handleRateLimit(request);
+    } else {
+      resolve(result);
+      totalItemsProcessed++;
+      if (result.location) queueForUpload(screenName, result.location);
+    }
+  } catch (error) {
+    reject(error);
+  }
+}
 
-      activeRequests++;
-      lastRequestTime = Date.now();
+async function processBatch(batch, isTwitterRateLimited) {
+  const usernames = batch.map(req => req.screenName);
+  let cloudResults = null;
+
+  try {
+    cloudResults = await fetchFromCloud(usernames);
+  } catch (e) {
+    console.error('TweetSanitizer: Cloud batch failed', e);
+  }
+
+  // Process results
+  for (const request of batch) {
+    const { screenName, resolve, reject } = request;
+    const cloudLocation = cloudResults ? cloudResults[screenName] : null;
+
+    if (cloudLocation) {
+      // HIT
+      resolve({ location: cloudLocation, userId: null });
+      saveCacheEntry(screenName, { location: cloudLocation, userId: null });
+      totalItemsProcessed++;
+    } else {
+      // MISS: Fallback to Direct
+      // Note: This runs sequentially within the batch context, but the batch itself is async
+      // To avoid blocking, we could re-queue as high priority direct?
+      // For now, let's just run it here.
 
       if (isTwitterRateLimited && request.retryCount === 0) {
         resolve({ location: null, userId: null });
-        activeRequests--;
       } else {
-        makeLocationRequest(screenName)
-          .then(result => {
-            // Check for 429 or rate limited flag
-            if (result.isRateLimited) {
-              if (request.retryCount < 3) {
-                const delays = [5000, 10000, 30000];
-                const delay = delays[request.retryCount];
-                request.retryCount++;
-                request.processAfter = Date.now() + delay;
-                // console.log(`TweetSanitizer: 429 for ${screenName}, retrying in ${delay}ms (Attempt ${request.retryCount}/3)`);
-                requestQueue.push(request);
-                // Don't resolve, just re-queue
-              } else {
-                console.warn(`TweetSanitizer: Gave up on ${screenName} after 3 retries`);
-                resolve({ location: null, userId: null });
-              }
-            } else {
-              resolve(result);
-              totalItemsProcessed++;
-              if (result.location) queueForUpload(screenName, result.location);
-            }
-          })
-          .catch(error => reject(error))
-          .finally(() => {
-            activeRequests--;
-            setTimeout(processRequestQueue, 50);
-          });
-      }
-    } else {
-      // Concurrency limit reached for direct
-      isProcessingQueue = false;
-      return;
-    }
-  } else {
-    // --- HYBRID STRATEGY (Batch, Cloud -> Fallback) ---
-
-    // Process a batch of items
-    const batch = [];
-    // Reuse 'now' from outer scope or just get fresh time if needed, but 'now' is already defined at top of function
-    // Actually 'now' was defined at line 365. Let's just use that or update it.
-    const batchTime = Date.now();
-
-    // Collect ready items for batch
-    // We iterate and splice carefully
-    let i = 0;
-    while (batch.length < BATCH_SIZE && i < requestQueue.length && activeRequests < maxConcurrentRequests) {
-      const req = requestQueue[i];
-      if (!req.processAfter || req.processAfter <= batchTime) {
-        batch.push(requestQueue.splice(i, 1)[0]);
-        activeRequests++;
-        // Don't increment i because splice shifted elements
-      } else {
-        i++;
-      }
-    }
-
-    if (batch.length === 0) {
-      isProcessingQueue = false;
-      return;
-    }
-
-    const usernames = batch.map(req => req.screenName);
-
-    // 1. Try Cloud API first (Batch)
-    let cloudResults = null;
-    try {
-      cloudResults = await fetchFromCloud(usernames);
-    } catch (e) {
-      console.error('TweetSanitizer: Cloud batch failed', e);
-    }
-
-    // Process batch results
-    for (const request of batch) {
-      const { screenName, resolve, reject } = request;
-      const cloudLocation = cloudResults ? cloudResults[screenName] : null;
-
-      if (cloudLocation) {
-        // HIT: Found in Cloud
-        resolve({ location: cloudLocation, userId: null });
-        activeRequests--;
-        saveCacheEntry(screenName, { location: cloudLocation, userId: null });
-        totalItemsProcessed++;
-      } else {
-        // MISS: Fallback to Twitter API
-        if (isTwitterRateLimited && request.retryCount === 0) {
-          resolve({ location: null, userId: null });
-          activeRequests--;
-        } else {
-          makeLocationRequest(screenName)
-            .then(result => {
-              if (result.isRateLimited) {
-                if (request.retryCount < 3) {
-                  const delays = [5000, 10000, 30000];
-                  const delay = delays[request.retryCount];
-                  request.retryCount++;
-                  request.processAfter = Date.now() + delay;
-                  // console.log(`TweetSanitizer: 429 for ${screenName}, retrying in ${delay}ms (Attempt ${request.retryCount}/3)`);
-                  requestQueue.push(request);
-                } else {
-                  console.warn(`TweetSanitizer: Gave up on ${screenName} after 3 retries`);
-                  resolve({ location: null, userId: null });
-                }
-              } else {
-                resolve(result);
-                totalItemsProcessed++;
-                if (result.location) {
-                  queueForUpload(screenName, result.location);
-                }
-              }
-            })
-            .catch(error => reject(error))
-            .finally(() => {
-              activeRequests--;
-            });
+        try {
+          const result = await makeLocationRequest(screenName);
+          if (result.isRateLimited) {
+            handleRateLimit(request);
+          } else {
+            resolve(result);
+            totalItemsProcessed++;
+            if (result.location) queueForUpload(screenName, result.location);
+          }
+        } catch (error) {
+          reject(error);
         }
       }
     }
-
-    lastRequestTime = Date.now();
-    setTimeout(processRequestQueue, 100);
   }
+}
 
-  // Keep processing if queue not empty
-  if (requestQueue.length > 0) {
-    // If we just fired async requests, we don't want to loop immediately and block
-    // But we rely on callbacks to trigger next processRequestQueue usually.
-    // However, for batching, we might want to trigger again if we have capacity.
+function handleRateLimit(request) {
+  if (request.retryCount < 3) {
+    const delays = [5000, 10000, 30000];
+    const delay = delays[request.retryCount];
+    request.retryCount++;
+    request.processAfter = Date.now() + delay;
+    requestQueue.push(request); // Re-queue
+  } else {
+    request.resolve({ location: null, userId: null });
   }
-
-  isProcessingQueue = false;
 }
 
 function makeLocationRequest(screenName) {
@@ -1365,11 +1358,344 @@ function stopIdleLoading() {
   idleLoadingActive = false;
 }
 
+init();
+
+// --- Premium Promo Logic (Refined Liquid Glass) ---
+// --- Premium Promo Logic (Refined Liquid Glass) ---
+async function showChristmasPromo() {
+  // 1. Feature Flag / Date Check (End of December)
+  const today = new Date();
+  const endOfDec = new Date(today.getFullYear(), 11, 31, 23, 59, 59); // Dec 31st
+  if (today > endOfDec) return;
+
+  // 2. Premium Check (Don't show to paid users)
+  if (isProUser) {
+    console.log('TweetSanitizer: User is Premium. Skipping promo.');
+    return;
+  }
+
+  // 3. Frequency Check (Once every week)
+  const STORAGE_KEY = 'ts_promo_last_shown';
+  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+  try {
+    const result = await chrome.storage.local.get([STORAGE_KEY]);
+    const lastShown = result[STORAGE_KEY] || 0;
+
+    // If shown less than a week ago, skip
+    if (Date.now() - lastShown < ONE_WEEK_MS) {
+      console.log('TweetSanitizer: Promo shown recently. Skipping.');
+      return;
+    }
+
+    // Save new showing time
+    await chrome.storage.local.set({ [STORAGE_KEY]: Date.now() });
+
+  } catch (e) {
+    console.error('TweetSanitizer: Storage error', e);
+    // Continue cautiously or return? If storage fails, maybe safe to show or skip. 
+    // Let's proceed to show to avoid blocking value prop, but unlikely to fail.
+  }
+
+  const existingId = 'tweet-sanitizer-christmas-promo';
+  if (document.getElementById(existingId)) return;
+
+
+  const promoContainer = document.createElement('div');
+  promoContainer.id = existingId;
+  promoContainer.style.position = 'fixed';
+  promoContainer.style.top = '32px';  // Moved higher as requested
+  promoContainer.style.right = '24px';
+  promoContainer.style.zIndex = '2147483647';
+  promoContainer.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+  // Shadow DOM
+  const shadow = promoContainer.attachShadow({ mode: 'open' });
+
+  // Get Icon URL
+  const logoUrl = chrome.runtime.getURL('icons/icon-48.png');
+
+  const style = `
+    /* CSS Reset */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    :host {
+      /* Grey Blurred Translucent Theme */
+      --glass-bg: rgba(40, 44, 52, 0.85); /* Grey Blurred Translucent */
+      --glass-border: rgba(255, 255, 255, 0.15);
+      --shadow-ambient: 0 8px 32px rgba(0, 0, 0, 0.3);
+      --text-main: #FFFFFF;
+      --text-sub: #9CA3AF; /* Ash */
+      --price-red: #FF3B30; /* Red for $2 */
+      --price-ash: #6E6E73; /* Ash for $5 */
+      --accent-grad: linear-gradient(135deg, #FF3E55 0%, #FF9000 100%);
+    }
+
+    .container {
+      position: relative;
+      width: 350px; /* Wider to un-constrict headline */
+      padding: 0;
+      border-radius: 20px;
+      
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 
+        0 0 0 1px var(--glass-border) inset,
+        var(--shadow-ambient);
+      
+      opacity: 0;
+      transform: translateY(-10px) scale(0.96);
+      animation: springIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+      overflow: hidden;
+      cursor: default;
+      text-align: center;
+    }
+
+    @keyframes springIn {
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    
+    @keyframes blink-badge {
+      0%, 100% { color: #34C759; background: rgba(52, 199, 89, 0.15); } /* Green */
+      50% { color: #FF3B30; background: rgba(255, 59, 48, 0.15); } /* Red */
+    }
+
+    /* Bounce Out Right Animation (User Provided) */
+    @keyframes bounceOutRight {
+      20% {
+        opacity: 1;
+        transform: translateX(-20px);
+      }
+    
+      100% {
+        opacity: 0;
+        transform: translateX(2000px);
+      }
+    }
+    
+    .bounceOutRight {
+      animation-name: bounceOutRight;
+      animation-duration: 0.75s;
+      animation-timing-function: ease-in;
+      animation-fill-mode: both;
+    }
+
+    /* Header */
+    .top-notch {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 16px 8px;
+      gap: 8px;
+    }
+    
+    .logo-img {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      display: block;
+    }
+    
+    .brand-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .content {
+      padding: 0 20px 24px; /* Slightly less padding to give more width */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .headline {
+      font-size: 28px; /* Bigger as requested */
+      font-weight: 800;
+      color: #FFD700; /* Yellow */
+      margin-bottom: 8px;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      max-width: 100%;
+    }
+
+    .subtext {
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text-sub);
+      margin-bottom: 20px;
+      font-weight: 400;
+      max-width: 90%;
+    }
+
+    /* Pricing */
+    .pricing-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    
+    .price-val {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--price-red); /* Red */
+    }
+
+    .price-old {
+      font-size: 16px;
+      color: var(--price-ash); /* Ash */
+      text-decoration: line-through;
+      font-weight: 500;
+    }
+
+    .lifetime-badge {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 100px;
+      margin-left: 4px;
+      animation: blink-badge 2s infinite ease-in-out; /* Blinking Animation */
+    }
+
+    /* CTA Button */
+    .cta-btn {
+      width: 100%;
+      background: var(--accent-grad);
+      color: white;
+      border: none;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 700;
+      border-radius: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+      box-shadow: 0 4px 16px rgba(255, 62, 85, 0.3);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(255, 62, 85, 0.4);
+    }
+    
+    /* Close Button */
+    .close-btn {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      cursor: pointer;
+      display:flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-sub);
+      transition: all 0.2s;
+      z-index: 2;
+    }
+
+    .close-btn:hover {
+      background: #FF3B30; /* Red on hover */
+      color: white;
+      transform: rotate(90deg); /* Nice little rotation */
+    }
+    
+    .shine {
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 50%;
+      height: 100%;
+      background: linear-gradient(
+        to right,
+        rgba(255,255,255,0) 0%,
+        rgba(255,255,255,0.2) 50%,
+        rgba(255,255,255,0) 100%
+      );
+      transform: skewX(-20deg);
+      animation: shine 3s infinite;
+    }
+    
+    @keyframes shine {
+      0%, 80% { left: -100%; }
+      100% { left: 200%; }
+    }
+  `;
+
+  // HTML Structure
+  const html = `
+    <div class="container">
+      <button class="close-btn" aria-label="Close">
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l10 10M11 1L1 11"/></svg>
+      </button>
+
+      <div class="top-notch">
+        <img class="logo-img" src="${logoUrl}" alt="Logo">
+        <span class="brand-name">Tweet Sanitizer</span>
+      </div>
+
+      <div class="content">
+        <div class="headline">See Tweets That<br>Actually Matter</div>
+        <div class="subtext">Filter out regional noise and focus your timeline on the content you care about.</div>
+
+        <div class="pricing-row">
+          <span class="price-val">$2</span>
+          <span class="price-old">$5</span>
+          <span class="lifetime-badge">LIFETIME ACCESS</span>
+        </div>
+
+        <a href="https://evynignatious.gumroad.com/l/ypykqhh/XMAs" target="_blank" class="cta-btn">
+          <span>Take Control of Your Timeline</span>
+          <div class="shine"></div>
+        </a>
+      </div>
+    </div>
+  `;
+
+  shadow.innerHTML = `<style>${style}</style>${html}`;
+
+  document.body.appendChild(promoContainer);
+
+  const closeBtn = shadow.querySelector('.close-btn');
+  const ctaBtn = shadow.querySelector('.cta-btn');
+  const container = shadow.querySelector('.container');
+
+  /* Close Logic with Bounce Out Right Animation */
+  const closePromo = () => {
+    container.classList.add('bounceOutRight');
+    // Remove after animation completes
+    setTimeout(() => {
+      promoContainer.remove();
+    }, 800);
+  };
+
+  closeBtn.addEventListener('click', closePromo);
+  ctaBtn.addEventListener('click', () => {
+    setTimeout(closePromo, 1500);
+  });
+}
 
 
 async function init() {
   // Check license in background (don't await to avoid blocking UI)
-  checkLicense();
+  await checkLicense(); // AWAIT THIS NOW to ensure we know Pro status before checking promo
+
+  // Trigger Promo (after license check)
+  showChristmasPromo();
+
 
   // Load settings
   await loadEnabledState();
@@ -1416,3 +1742,323 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// --- DETAILS HOVERCARD SYSTEM (Rebuilt) ---
+
+// Hovercard state
+let detailsHovercard = null;
+let pendingDetailRequests = new Map();
+
+// Create the hovercard element
+function getDetailsHovercard() {
+  if (detailsHovercard) return detailsHovercard;
+
+  detailsHovercard = document.createElement('div');
+  detailsHovercard.id = 'ts-details-hovercard';
+  detailsHovercard.innerHTML = `
+    <div class="ts-hc-header">
+      <span class="ts-hc-title">Account Details</span>
+      <span class="ts-hc-close">×</span>
+    </div>
+    <div class="ts-hc-body">
+      <div class="ts-hc-section">
+        <div class="ts-hc-row"><span class="ts-hc-label">User ID</span><span class="ts-hc-val" data-field="userId">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">Created</span><span class="ts-hc-val" data-field="created">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">Days on X</span><span class="ts-hc-val" data-field="daysOnX">—</span></div>
+      </div>
+      <div class="ts-hc-section">
+        <div class="ts-hc-row"><span class="ts-hc-label">Location</span><span class="ts-hc-val" data-field="location">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">Created In</span><span class="ts-hc-val" data-field="createdIn">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">VPN/Proxy</span><span class="ts-hc-val" data-field="vpn">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">Device</span><span class="ts-hc-val" data-field="device">—</span></div>
+      </div>
+      <div class="ts-hc-section">
+        <div class="ts-hc-row"><span class="ts-hc-label">Username Changes</span><span class="ts-hc-val" data-field="usernameChanges">—</span></div>
+      </div>
+      <div class="ts-hc-section">
+        <div class="ts-hc-row"><span class="ts-hc-label">Blue Verified</span><span class="ts-hc-val" data-field="blueVerified">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">Legacy Verified</span><span class="ts-hc-val" data-field="legacyVerified">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">ID Verified</span><span class="ts-hc-val" data-field="idVerified">—</span></div>
+        <div class="ts-hc-row"><span class="ts-hc-label">Affiliation</span><span class="ts-hc-val" data-field="affiliation">—</span></div>
+      </div>
+    </div>
+  `;
+
+  // Add styles
+  const style = document.createElement('style');
+  style.textContent = `
+    #ts-details-hovercard {
+      position: fixed;
+      z-index: 999999;
+      width: 320px;
+      background: rgba(0, 0, 0, 0.95);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e7e9ea;
+      display: none;
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+    }
+    #ts-details-hovercard.visible { display: block; }
+    .ts-hc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      background: rgba(29, 155, 240, 0.1);
+    }
+    .ts-hc-title {
+      font-weight: 700;
+      font-size: 14px;
+      color: #1d9bf0;
+    }
+    .ts-hc-close {
+      cursor: pointer;
+      font-size: 20px;
+      color: #71767b;
+      line-height: 1;
+    }
+    .ts-hc-close:hover { color: #f4212e; }
+    .ts-hc-body { padding: 8px 0; }
+    .ts-hc-section {
+      padding: 8px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .ts-hc-section:last-child { border-bottom: none; }
+    .ts-hc-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 13px;
+    }
+    .ts-hc-label { color: #71767b; }
+    .ts-hc-val { 
+      font-weight: 600; 
+      color: #e7e9ea;
+      text-align: right;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ts-hc-val.verified { color: #00ba7c; }
+    .ts-hc-val.warning { color: #f4212e; }
+    .ts-hc-val.blue { color: #1d9bf0; }
+    .ts-hc-val.gold { color: #ffd700; }
+    .ts-hc-val.loading { color: #71767b; font-style: italic; }
+  `;
+  document.head.appendChild(style);
+  document.body.appendChild(detailsHovercard);
+
+  // Close button
+  detailsHovercard.querySelector('.ts-hc-close').addEventListener('click', hideDetailsHovercard);
+
+  return detailsHovercard;
+}
+
+function showDetailsHovercard(screenName, anchorRect) {
+  console.log('TweetSanitizer: showDetailsHovercard called for', screenName);
+  const card = getDetailsHovercard();
+
+  // Position card
+  const top = anchorRect.bottom + window.scrollY + 8;
+  let left = anchorRect.left;
+  if (left + 320 > window.innerWidth) {
+    left = window.innerWidth - 330;
+  }
+  card.style.top = `${top}px`;
+  card.style.left = `${left}px`;
+
+  // Reset all values to loading state
+  card.querySelectorAll('.ts-hc-val').forEach(el => {
+    el.textContent = '...';
+    el.className = 'ts-hc-val loading';
+  });
+
+  card.classList.add('visible');
+  console.log('TweetSanitizer: Hovercard shown, sending request to pageScript');
+
+  // Request data from pageScript
+  const requestId = `details_${Date.now()}_${Math.random()}`;
+  window.postMessage({
+    type: '__fetchAccountDetails',
+    screenName: screenName,
+    requestId: requestId
+  }, '*');
+
+  // Store pending request
+  pendingDetailRequests.set(requestId, screenName);
+}
+
+function hideDetailsHovercard() {
+  if (detailsHovercard) {
+    detailsHovercard.classList.remove('visible');
+  }
+}
+
+function populateDetailsHovercard(data) {
+  const card = getDetailsHovercard();
+  if (!card.classList.contains('visible')) return;
+
+  const setValue = (field, value, className = '') => {
+    const el = card.querySelector(`[data-field="${field}"]`);
+    if (el) {
+      el.textContent = value || '—';
+      el.className = 'ts-hc-val' + (className ? ` ${className}` : '');
+    }
+  };
+
+  // Basic Info
+  setValue('userId', data.userId);
+  setValue('created', data.createdAt);
+  setValue('daysOnX', data.daysOnX ? `${data.daysOnX.toLocaleString()} days` : null);
+
+  // Location
+  setValue('location', data.location);
+  if (data.createdCountryAccurate && data.createdIn) {
+    setValue('createdIn', `✓ ${data.createdIn}`, 'verified');
+  } else {
+    setValue('createdIn', 'Unknown');
+  }
+
+  // VPN Detection
+  if (data.locationAccurate === false) {
+    setValue('vpn', '⚠️ Likely', 'warning');
+  } else if (data.locationAccurate === true) {
+    setValue('vpn', '✓ No', 'verified');
+  } else {
+    setValue('vpn', 'Unknown');
+  }
+
+  setValue('device', data.device);
+
+  // Username Changes
+  if (data.usernameChanges > 0) {
+    setValue('usernameChanges', `${data.usernameChanges}x`);
+  } else {
+    setValue('usernameChanges', 'Never');
+  }
+
+  // Verification
+  setValue('blueVerified', data.isBlueVerified ? '✓ Paid' : 'No', data.isBlueVerified ? 'blue' : '');
+  setValue('legacyVerified', data.isLegacyVerified ? '✓ Yes' : 'No', data.isLegacyVerified ? 'gold' : '');
+  setValue('idVerified', data.isIdentityVerified ? '✓ KYC' : 'No', data.isIdentityVerified ? 'verified' : '');
+  setValue('affiliation', data.affiliation || 'None');
+}
+
+// Listen for details response from pageScript
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  if (event.data && event.data.type === '__accountDetailsResponse') {
+    console.log('TweetSanitizer: Received __accountDetailsResponse', event.data);
+    const { requestId, data } = event.data;
+    if (pendingDetailRequests.has(requestId)) {
+      pendingDetailRequests.delete(requestId);
+      if (data) {
+        console.log('TweetSanitizer: Populating hovercard with data', data);
+        populateDetailsHovercard(data);
+      } else {
+        console.log('TweetSanitizer: No data received');
+      }
+    }
+  }
+});
+
+// Inject "Details" pill into tweets
+function injectDetailsPill(tweetNode) {
+  if (tweetNode.dataset.detailsPillAdded) return;
+  tweetNode.dataset.detailsPillAdded = 'true';
+
+  const userNameEl = tweetNode.querySelector('[data-testid="User-Name"]');
+  if (!userNameEl) return;
+
+  const screenName = extractUsername(tweetNode);
+  if (!screenName) return;
+
+  // Create pill element
+  const pill = document.createElement('span');
+  pill.className = 'ts-details-pill';
+  pill.innerHTML = '📊 Details';
+  pill.title = 'View account details';
+  pill.style.cssText = `
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 2px 10px;
+    background: rgba(29, 155, 240, 0.15);
+    border: 1px solid rgba(29, 155, 240, 0.5);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1d9bf0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    vertical-align: middle;
+  `;
+
+  pill.addEventListener('mouseenter', () => {
+    pill.style.background = 'rgba(29, 155, 240, 0.3)';
+    pill.style.transform = 'scale(1.05)';
+  });
+  pill.addEventListener('mouseleave', () => {
+    pill.style.background = 'rgba(29, 155, 240, 0.15)';
+    pill.style.transform = 'scale(1)';
+  });
+
+  pill.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = pill.getBoundingClientRect();
+    showDetailsHovercard(screenName, rect);
+  });
+
+  // Insert after the last link in the username area
+  const links = userNameEl.querySelectorAll('a[href^="/"]');
+  if (links.length > 0) {
+    const lastLink = links[links.length - 1];
+    if (lastLink.parentNode) {
+      lastLink.parentNode.insertBefore(pill, lastLink.nextSibling);
+    }
+  } else {
+    userNameEl.appendChild(pill);
+  }
+
+  console.log('TweetSanitizer: Injected Details pill for', screenName);
+}
+
+// Observer for new tweets
+const detailsPillObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    if (mutation.addedNodes.length) {
+      mutation.addedNodes.forEach(node => {
+        if (node.nodeType === 1) {
+          if (node.matches && node.matches('article[data-testid="tweet"]')) {
+            injectDetailsPill(node);
+          }
+          if (node.querySelectorAll) {
+            node.querySelectorAll('article[data-testid="tweet"]').forEach(injectDetailsPill);
+          }
+        }
+      });
+    }
+  }
+});
+
+detailsPillObserver.observe(document.body, { childList: true, subtree: true });
+
+// Initial pass
+setTimeout(() => {
+  document.querySelectorAll('article[data-testid="tweet"]').forEach(injectDetailsPill);
+}, 1500);
+
+// Close hovercard when clicking outside
+document.addEventListener('click', (e) => {
+  if (detailsHovercard && detailsHovercard.classList.contains('visible')) {
+    if (!detailsHovercard.contains(e.target) && !e.target.classList.contains('ts-details-pill')) {
+      hideDetailsHovercard();
+    }
+  }
+});

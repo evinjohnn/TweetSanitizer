@@ -1,0 +1,115 @@
+/* Add this to styles/content.css */
+
+/* 1. Theme Variables (Auto-matches X) */
+:root {
+    --ts-bg: #000000;
+    --ts-text: #e7e9ea;
+    --ts-border: #2f3336;
+    --ts-accent: #1d9bf0;
+    --ts-pill-bg: rgba(29, 155, 240, 0.15);
+}
+
+[data-theme="light"] {
+    /* X injects this attribute */
+    --ts-bg: #ffffff;
+    --ts-text: #0f1419;
+    --ts-border: #cfd9de;
+    --ts-pill-bg: rgba(29, 155, 240, 0.1);
+}
+
+/* 2. The Pill Badge */
+.ts-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: var(--ts-pill-bg);
+    border: 1px solid var(--ts-accent);
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: transform 0.2s ease;
+}
+
+.ts-pill:hover {
+    transform: scale(1.05);
+    background: var(--ts-accent);
+    color: white;
+}
+
+/* 3. The Rich Hovercard */
+.ts-hovercard {
+    position: absolute;
+    z-index: 10000;
+    width: 300px;
+    background: var(--ts-bg);
+    border: 1px solid var(--ts-border);
+    border-radius: 16px;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+    padding: 16px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    backdrop-filter: blur(10px);
+    /* Glassmorphism */
+}
+
+.ts-hovercard.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* 4. Data Rows inside Card */
+.ts-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--ts-border);
+    font-size: 14px;
+}
+
+.ts-row:last-child {
+    border-bottom: none;
+}
+
+.ts-label {
+    color: #71767b;
+}
+
+.ts-value {
+    font-weight: 700;
+    color: var(--ts-text);
+}
+
+/* 5. Divider Lines */
+.ts-divider {
+    border: none;
+    border-top: 1px solid var(--ts-border);
+    margin: 4px 0;
+    opacity: 0.5;
+}
+
+/* 6. Color States for Values */
+.ts-verified-text {
+    color: #00ba7c !important;
+}
+
+.ts-warning-text {
+    color: #f4212e !important;
+}
+
+.ts-blue-text {
+    color: #1d9bf0 !important;
+}
+
+.ts-gold-text {
+    color: #ffd700 !important;
+}
+
+/* 7. Hovercard Scroll for many items */
+.ts-hovercard {
+    max-height: 400px;
+    overflow-y: auto;
+}

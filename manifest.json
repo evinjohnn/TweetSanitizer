@@ -1,17 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "TweetSanitizer",
-  "version": "3.0.6",
+  "name": "Tweet Sanitizer: Location Flags & Country Blocker for X",
+  "version": "4.0.4",
   "description": "Display country flags on X (Twitter). Block tweets by country, auto-mute users, and see location badges. Fast & privacy-focused.",
   "author": "Evin John",
   "permissions": [
-    "storage"
+    "storage",
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
     "https://tweet-sanitizer-api.tweetsanitizer.workers.dev/*",
-    "https://tweetsanitizer.com/*"
+    "https://tweetsanitizer.com/*",
+    "https://www.google-analytics.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -39,13 +42,17 @@
         "countryFlags.js",
         "content.js"
       ],
+      "css": [
+        "styles/content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
       "resources": [
-        "pageScript.js"
+        "pageScript.js",
+        "icons/*.png"
       ],
       "matches": [
         "https://twitter.com/*",

@@ -3,7 +3,7 @@
 A powerful Chrome extension that enhances your Twitter/X experience by displaying country flags and region badges next to usernames. Now with Pro features for advanced control.
 
 ![Version](https://img.shields.io/badge/version-2.0.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+
 
 ## ✨ What's New in v2.0
 
@@ -62,6 +62,14 @@ A powerful Chrome extension that enhances your Twitter/X experience by displayin
 - **Cloudflare Workers**: Handles license verification and batch location lookups.
 - **LemonSqueezy**: Secure payment processing for Pro licenses.
 
+## 🔐 Permissions Justification
+
+| Permission | Purpose |
+| :--- | :--- |
+| `storage` | Required to save user settings (Pro license key, blocked countries, whitelist) and cache location data locally. |
+| `alarms` | Used to schedule a periodic background task (every 10 minutes) that syncs pending, locally cached public location data to the extension's database. This ensures data consistency without impacting browser performance. |
+| `host_permissions` | - `x.com` / `twitter.com`: To display flags on the website.<br>- `tweet-sanitizer-api...`: To verify licenses and fetch location data. |
+
 ## 🔄 Changelog
 
 ### Version 2.0.0 (2025-11-26)
@@ -79,5 +87,4 @@ A powerful Chrome extension that enhances your Twitter/X experience by displayin
 **Evin John**
 - Email: evynjohnignatious@gmail.com
 
-## 📝 License
-MIT License - See [LICENSE](LICENSE) file for details.
+

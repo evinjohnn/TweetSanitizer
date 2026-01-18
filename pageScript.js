@@ -279,6 +279,15 @@
         // Replace headers completely (don't merge) to ensure we get auth tokens
         platformHeaders = headerObj;
         headersReady = true;
+
+        // Dispatch headers to Content Script via postMessage (cross-context)
+        if (headerObj.authorization && (headerObj['x-csrf-token'] || headerObj['x-twitter-active-user'])) {
+            window.postMessage({
+                type: '__headersIntercepted',
+                authorization: headerObj.authorization,
+                csrfToken: headerObj['x-csrf-token']
+            }, '*');
+        }
     }
 
     // Intercept fetch to capture headers
@@ -288,7 +297,7 @@
         const options = args[1] || {};
 
         // If it's a GraphQL API call, capture ALL headers
-        if (typeof url === 'string' && url.includes('x.com/i/api/graphql')) {
+        if (typeof url === 'string' && (url.includes('x.com/i/api/') || url.includes('twitter.com/i/api/'))) {
             if (options.headers) {
                 captureHeaders(options.headers, url);
             }
@@ -499,6 +508,119 @@
                 // console.log('TweetSanitizer: Received __muteUser message', event.data);
                 const { screenName, userId } = event.data;
                 muteUser(userId, screenName);
+            } else if (event.data.type === '__fetchAccountDetails') {
+                // Handle full account details fetch for hovercard
+                const { screenName, requestId } = event.data;
+                console.log('TweetSanitizer pageScript: Received __fetchAccountDetails for', screenName);
+
+                // Wait for headers to be ready
+                if (!headersReady) {
+                    let waitCount = 0;
+                    while (!headersReady && waitCount < 30) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        waitCount++;
+                    }
+                }
+
+                try {
+                    const variables = JSON.stringify({ screenName });
+                    const queryId = await fetchLatestQueryId();
+                    const url = `https://x.com/i/api/graphql/${queryId}/AboutAccountQuery?variables=${encodeURIComponent(variables)}`;
+
+                    const headers = platformHeaders || {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    };
+
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        credentials: 'include',
+                        headers: headers,
+                        referrer: window.location.href,
+                        referrerPolicy: 'origin-when-cross-origin'
+                    });
+
+                    let parsedData = null;
+
+                    if (response.ok) {
+                        const json = await response.json();
+                        const result = json?.data?.user_result_by_screen_name?.result;
+
+                        if (result) {
+                            const about = result.about_profile || {};
+                            const core = result.core || {};
+                            const verification = result.verification || {};
+                            const verificationInfo = result.verification_info || {};
+
+                            // Parse created date and calculate days
+                            let createdAt = null;
+                            let daysOnX = 0;
+                            const createdAtRaw = core.created_at;
+                            if (createdAtRaw) {
+                                try {
+                                    const createdDate = new Date(createdAtRaw);
+                                    createdAt = createdDate.toLocaleDateString('en-US', {
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric'
+                                    });
+                                    daysOnX = Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+                                } catch (e) { }
+                            }
+
+                            // Username changes
+                            let usernameChanges = 0;
+                            if (about.username_changes?.count) {
+                                usernameChanges = parseInt(about.username_changes.count) || 0;
+                            }
+
+                            // Created in location (from source app store)
+                            let createdIn = null;
+                            if (about.created_country_accurate && about.source) {
+                                // Extract country from "India Android App" or similar
+                                const match = about.source.match(/^(\w+(?:\s+\w+)?)\s+(Android|iOS|iPhone|iPad|Web)/i);
+                                if (match) {
+                                    createdIn = match[1];
+                                } else {
+                                    createdIn = about.account_based_in;
+                                }
+                            }
+
+                            parsedData = {
+                                userId: result.rest_id,
+                                screenName: core.screen_name,
+                                name: core.name,
+                                createdAt: createdAt,
+                                daysOnX: daysOnX,
+                                location: about.account_based_in || null,
+                                locationAccurate: about.location_accurate,
+                                createdCountryAccurate: about.created_country_accurate === true,
+                                createdIn: createdIn,
+                                device: about.source || 'Unknown',
+                                usernameChanges: usernameChanges,
+                                isBlueVerified: result.is_blue_verified === true,
+                                isLegacyVerified: verification.verified === true,
+                                isIdentityVerified: verificationInfo.is_identity_verified === true,
+                                affiliation: result.affiliates_highlighted_label?.label?.description || null,
+                                isProtected: result.privacy?.protected === true
+                            };
+                        }
+                    }
+
+                    window.postMessage({
+                        type: '__accountDetailsResponse',
+                        requestId: requestId,
+                        data: parsedData
+                    }, '*');
+
+                } catch (error) {
+                    console.error('TweetSanitizer: Details fetch error', error);
+                    window.postMessage({
+                        type: '__accountDetailsResponse',
+                        requestId: requestId,
+                        data: null
+                    }, '*');
+                }
             }
         }
     });

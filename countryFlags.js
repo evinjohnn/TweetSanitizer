@@ -523,3 +523,10 @@ function getCountryFlag(countryName) {
 
   return null;
 }
+
+// Expose to window for content.js access (Webpack workaround)
+if (typeof window !== 'undefined') {
+  window.getCountryFlag = getCountryFlag;
+  window.REGION_STYLES = REGION_STYLES;
+  window.COUNTRY_FLAGS = COUNTRY_FLAGS;
+}
