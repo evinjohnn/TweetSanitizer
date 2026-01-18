@@ -937,60 +937,77 @@ async function addFlagToUsername(usernameElement, screenName) {
         return;
       }
 
+      // Create combined pill: Flag | Details
       const flagSpan = document.createElement('span');
       flagSpan.setAttribute('data-twitter-flag', 'true');
-      flagSpan.style.marginLeft = '4px';
-      flagSpan.style.marginRight = '4px';
-      flagSpan.style.display = 'inline-block';
-      flagSpan.style.verticalAlign = 'middle';
+      flagSpan.style.cssText = `
+        display: inline-flex;
+        align-items: center;
+        margin-left: 6px;
+        padding: 1px 6px 1px 4px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(113, 118, 123, 0.3);
+        border-radius: 999px;
+        font-size: 11px;
+        vertical-align: middle;
+        gap: 0;
+      `;
+
+      // Flag part
+      const flagPart = document.createElement('span');
+      flagPart.style.cssText = 'display: inline-flex; align-items: center;';
 
       if (flagData.type === 'text') {
-        flagSpan.textContent = ` ${flagData.value} `;
-        flagSpan.style.fontSize = '10px';
-        flagSpan.style.fontWeight = 'bold';
-        flagSpan.style.borderRadius = '3px';
-        flagSpan.style.padding = '1px 4px';
-        flagSpan.style.lineHeight = '12px';
-        if (flagData.style) {
-          if (flagData.style.backgroundColor) flagSpan.style.backgroundColor = flagData.style.backgroundColor;
-          if (flagData.style.background) flagSpan.style.background = flagData.style.background;
-          if (flagData.style.color) flagSpan.style.color = flagData.style.color;
-          if (flagData.style.border) flagSpan.style.border = flagData.style.border;
-          if (flagData.style.textShadow) flagSpan.style.textShadow = flagData.style.textShadow;
-        } else {
-          flagSpan.style.color = '#536471';
-          flagSpan.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
-        }
+        flagPart.textContent = flagData.value;
+        flagPart.style.fontSize = '10px';
+        flagPart.style.fontWeight = 'bold';
+        if (flagData.style?.color) flagPart.style.color = flagData.style.color;
+        else flagPart.style.color = '#536471';
       } else {
-        // Use Twemoji for consistent rendering (Windows Fix)
+        // Use Twemoji for consistent rendering
         const emoji = flagData.value;
-
-        // 1. Convert emoji to hex code points (e.g. 🇺🇸 -> 1f1fa-1f1f8)
         const hexCode = Array.from(emoji)
           .map(c => c.codePointAt(0).toString(16))
           .join('-');
 
-        // 2. Create Image Element
         const img = document.createElement('img');
         img.src = `https://abs-0.twimg.com/emoji/v2/svg/${hexCode}.svg`;
         img.alt = emoji;
         img.draggable = false;
-
-        // 3. Apply Styles
-        img.style.height = '1.1em';
-        img.style.width = 'auto';
-        img.style.verticalAlign = '-0.2em';
-        img.style.margin = '0 4px';
-
-        // 4. Error Handler (Fallback)
+        img.style.cssText = 'height: 1em; width: auto; vertical-align: -0.1em;';
         img.onerror = () => {
-          flagSpan.innerHTML = ''; // Clear image
-          flagSpan.textContent = ` ${emoji}`; // Fallback to text
-          flagSpan.style.color = 'inherit';
+          flagPart.innerHTML = '';
+          flagPart.textContent = emoji;
         };
-
-        flagSpan.appendChild(img);
+        flagPart.appendChild(img);
       }
+
+      // Separator
+      const separator = document.createElement('span');
+      separator.textContent = '|';
+      separator.style.cssText = 'color: rgba(113, 118, 123, 0.4); margin: 0 5px; font-size: 10px;';
+
+      // Details link
+      const detailsLink = document.createElement('span');
+      detailsLink.textContent = 'Details';
+      detailsLink.style.cssText = `
+        color: #71767b;
+        font-weight: 500;
+        cursor: pointer;
+        transition: color 0.15s;
+      `;
+      detailsLink.addEventListener('mouseenter', () => { detailsLink.style.color = '#1d9bf0'; });
+      detailsLink.addEventListener('mouseleave', () => { detailsLink.style.color = '#71767b'; });
+      detailsLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = flagSpan.getBoundingClientRect();
+        showDetailsHovercard(screenName, rect);
+      });
+
+      flagSpan.appendChild(flagPart);
+      flagSpan.appendChild(separator);
+      flagSpan.appendChild(detailsLink);
 
       const containerForFlag = userNameContainer || usernameElement.querySelector('[data-testid="UserName"], [data-testid="User-Name"]');
       if (!containerForFlag) {
@@ -2007,100 +2024,10 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// Inject "Details" pill into tweets
-function injectDetailsPill(tweetNode) {
-  if (tweetNode.dataset.detailsPillAdded) return;
-  tweetNode.dataset.detailsPillAdded = 'true';
-
-  const userNameEl = tweetNode.querySelector('[data-testid="User-Name"]');
-  if (!userNameEl) return;
-
-  const screenName = extractUsername(tweetNode);
-  if (!screenName) return;
-
-  // Create pill element
-  const pill = document.createElement('span');
-  pill.className = 'ts-details-pill';
-  pill.textContent = 'Details';
-  pill.title = 'View account details';
-  pill.style.cssText = `
-    display: inline-flex;
-    align-items: center;
-    margin-left: 8px;
-    padding: 1px 8px;
-    background: transparent;
-    border: 1px solid rgba(113, 118, 123, 0.4);
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 500;
-    color: #71767b;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    vertical-align: middle;
-    letter-spacing: 0.01em;
-  `;
-
-  pill.addEventListener('mouseenter', () => {
-    pill.style.borderColor = 'rgba(29, 155, 240, 0.6)';
-    pill.style.color = '#1d9bf0';
-    pill.style.background = 'rgba(29, 155, 240, 0.08)';
-  });
-  pill.addEventListener('mouseleave', () => {
-    pill.style.borderColor = 'rgba(113, 118, 123, 0.4)';
-    pill.style.color = '#71767b';
-    pill.style.background = 'transparent';
-  });
-
-  pill.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const rect = pill.getBoundingClientRect();
-    showDetailsHovercard(screenName, rect);
-  });
-
-  // Insert after the last link in the username area
-  const links = userNameEl.querySelectorAll('a[href^="/"]');
-  if (links.length > 0) {
-    const lastLink = links[links.length - 1];
-    if (lastLink.parentNode) {
-      lastLink.parentNode.insertBefore(pill, lastLink.nextSibling);
-    }
-  } else {
-    userNameEl.appendChild(pill);
-  }
-
-  console.log('TweetSanitizer: Injected Details pill for', screenName);
-}
-
-// Observer for new tweets
-const detailsPillObserver = new MutationObserver((mutations) => {
-  for (const mutation of mutations) {
-    if (mutation.addedNodes.length) {
-      mutation.addedNodes.forEach(node => {
-        if (node.nodeType === 1) {
-          if (node.matches && node.matches('article[data-testid="tweet"]')) {
-            injectDetailsPill(node);
-          }
-          if (node.querySelectorAll) {
-            node.querySelectorAll('article[data-testid="tweet"]').forEach(injectDetailsPill);
-          }
-        }
-      });
-    }
-  }
-});
-
-detailsPillObserver.observe(document.body, { childList: true, subtree: true });
-
-// Initial pass
-setTimeout(() => {
-  document.querySelectorAll('article[data-testid="tweet"]').forEach(injectDetailsPill);
-}, 1500);
-
 // Close hovercard when clicking outside
 document.addEventListener('click', (e) => {
   if (detailsHovercard && detailsHovercard.classList.contains('visible')) {
-    if (!detailsHovercard.contains(e.target) && !e.target.classList.contains('ts-details-pill')) {
+    if (!detailsHovercard.contains(e.target) && !e.target.closest('[data-twitter-flag]')) {
       hideDetailsHovercard();
     }
   }
