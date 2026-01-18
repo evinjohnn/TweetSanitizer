@@ -119,12 +119,10 @@ const processingUsernames = new Set();
 window.addEventListener('message', (event) => {
   if (event.source !== window || !event.data) return;
 
-  if (event.data.type === '__headersIntercepted') {
-    // console.log('TweetSanitizer Content: Headers intercepted from pageScript');
+  if (event.data.type === 'TWITTER_HEADERS_CAPTURED') {
     // Forward headers to background script
-    const { authorization, csrfToken } = event.data;
+    const { authorization, csrfToken } = event.data.payload;
     if (authorization && csrfToken) {
-      // console.log('TweetSanitizer Content: Sending headers to Background');
       chrome.runtime.sendMessage({
         action: 'SAVE_TWITTER_HEADERS',
         payload: { authorization, csrfToken }
@@ -687,44 +685,61 @@ function makeLocationRequest(screenName) {
 }
 
 async function getUserLocation(screenName, element) {
-  // Check local cache first
+  // Check local memory cache first (L1)
   if (locationCache.has(screenName)) {
-    const cached = locationCache.get(screenName);
-    if (cached !== null && cached !== undefined) {
-      if (typeof cached === 'object' && cached.location !== undefined) {
-        return cached;
-      }
-      return { location: cached, userId: null };
-    } else {
-      locationCache.delete(screenName);
-    }
+    return locationCache.get(screenName);
   }
 
-  // Delegate to Background Queue
+  // Check persistent storage cache (L2)
+  // We can access chrome.storage.local directly in content scripts
+  const cacheKey = 'ts_user_cache_' + screenName;
+  const cached = await new Promise(resolve => {
+    chrome.storage.local.get(cacheKey, (result) => {
+      resolve(result[cacheKey] || null);
+    });
+  });
+
+  if (cached && (Date.now() - cached.timestamp < 30 * 24 * 60 * 60 * 1000)) {
+    // Valid L2 cache hit
+    locationCache.set(screenName, cached.data);
+    return cached.data;
+  }
+
+  // Fetch via Background Script (L3 Network)
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({
       action: 'FETCH_USER_DETAILS',
       username: screenName
     }, (response) => {
+      // Handle potential connection errors
       if (chrome.runtime.lastError) {
-        // console.error('TweetSanitizer: BG Error', chrome.runtime.lastError);
+        // console.warn('TweetSanitizer: BG Error', chrome.runtime.lastError);
         resolve({ location: null, userId: null });
         return;
       }
 
       if (!response || response.error) {
+        if (response && response.error === 'RATE_LIMITED') {
+          // console.warn(`TweetSanitizer: Rate limited for ${screenName}`);
+        }
         resolve({ location: null, userId: null });
       } else {
         const loc = response.location || response.createdInLocation || null;
         const uid = response.userId || null;
 
-        // Cache it locally too 
-        saveCacheEntry(screenName, { location: loc, userId: uid });
+        // Preserve full response data (flags + details)
+        const result = {
+          ...response,
+          location: loc,
+          userId: uid
+        };
 
-        resolve({ location: loc, userId: uid });
+        // Update L1 Cache
+        locationCache.set(screenName, result);
 
-        // Queue for upload (optional, if we still want to crowd-source)
-        if (loc) queueForUpload(screenName, loc);
+        // Background script already updates L2 and L3 caches
+
+        resolve(result);
       }
     });
   });
@@ -860,54 +875,52 @@ async function addFlagToUsername(usernameElement, screenName) {
       userNameContainer = usernameElement;
     }
 
+    if (!userNameContainer) return;
+
+    // --- Deduplication & Cleanup on the Container Itself ---
+    // Remove any existing pills to prevent duplicates (handling race conditions)
+    const existingPills = userNameContainer.querySelectorAll('.ts-pill');
+    existingPills.forEach(p => p.remove());
+
+    // Mark the container as processed to block immediate re-entry from other observers
+    if (userNameContainer.dataset.tsProcessed === 'true') return;
+    userNameContainer.dataset.tsProcessed = 'true';
+    // -----------------------------------------------------
+
     // Create placeholder pill immediately with "?" 
     const placeholderPill = document.createElement('span');
+    placeholderPill.className = 'ts-pill'; // Apply CSS Class
     placeholderPill.setAttribute('data-twitter-flag', 'true');
     placeholderPill.setAttribute('data-loading', 'true');
+    // Inline overrides if needed (mostly handled by class now)
     placeholderPill.style.cssText = `
-      display: inline-flex;
-      align-items: center;
-      margin-left: 8px;
-      padding: 2px 8px 2px 6px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(113, 118, 123, 0.4);
-      border-radius: 999px;
-      font-size: 11px;
       vertical-align: middle;
       gap: 0;
       transition: border-color 0.15s;
     `;
-    placeholderPill.addEventListener('mouseenter', () => { placeholderPill.style.borderColor = 'rgba(29, 155, 240, 0.5)'; });
-    placeholderPill.addEventListener('mouseleave', () => { placeholderPill.style.borderColor = 'rgba(113, 118, 123, 0.4)'; });
+    // Hover Logic: Trigger on entire Pill (Style Only)
+    placeholderPill.addEventListener('mouseenter', () => {
+      placeholderPill.style.borderColor = 'rgba(29, 155, 240, 0.5)';
+    });
+
+    placeholderPill.addEventListener('mouseleave', () => {
+      placeholderPill.style.borderColor = 'rgba(113, 118, 123, 0.4)';
+    });
 
     // Flag placeholder
     const flagPart = document.createElement('span');
     flagPart.className = 'ts-flag-part';
     flagPart.textContent = '?';
     flagPart.title = 'Loading location...';
-    flagPart.style.cssText = 'color: #536471; font-size: 11px; font-weight: bold; cursor: default; padding-left: 2px;';
+    flagPart.style.cssText = 'color: #536471; font-size: 13px; font-weight: normal; cursor: default;';
 
-    // Separator
-    const separator = document.createElement('span');
-    separator.textContent = '|';
-    separator.style.cssText = 'color: rgba(113, 118, 123, 0.4); margin: 0 5px; font-size: 10px;';
-
-    // Details link (always functional)
+    // Details link
     const detailsLink = document.createElement('span');
     detailsLink.textContent = 'Details';
-    detailsLink.style.cssText = 'color: #71767b; font-weight: 500; cursor: pointer; transition: color 0.15s;';
-    detailsLink.addEventListener('mouseenter', () => {
-      detailsLink.style.color = '#1d9bf0';
-      HovercardController.open({
-        anchor: placeholderPill,
-        screenName: screenName,
-        lock: false
-      });
-    });
-    detailsLink.addEventListener('mouseleave', () => {
-      detailsLink.style.color = '#71767b';
-      HovercardController.closeWithDelay(300);
-    });
+    detailsLink.className = 'ts-details-link';
+    detailsLink.style.cssText = 'cursor: pointer; font-size: 13px; font-weight: 500; transition: color 0.15s; margin-left: 0; opacity: 1;';
+
+    // Link Click - Locks the card
     detailsLink.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -918,18 +931,53 @@ async function addFlagToUsername(usernameElement, screenName) {
       });
     });
 
+    // Hover Logic: Trigger popup ONLY on Details Link
+    detailsLink.addEventListener('mouseenter', () => {
+      HovercardController.open({ anchor: placeholderPill, screenName: screenName, lock: false });
+    });
+
+    detailsLink.addEventListener('mouseleave', () => {
+      HovercardController.closeWithDelay(300);
+    });
+
+    // Separator (Restored)
+    const separator = document.createElement('span');
+    separator.textContent = '|';
+    separator.style.cssText = 'color: rgba(255, 255, 255, 0.2); margin: 0 6px; font-size: 11px; font-weight: 300; vertical-align: 1px;';
+
     placeholderPill.appendChild(flagPart);
     placeholderPill.appendChild(separator);
     placeholderPill.appendChild(detailsLink);
 
     // Insert placeholder pill
     if (userNameContainer) {
-      const handleSection = findHandleSection(userNameContainer, screenName);
-      if (handleSection && handleSection.parentNode) {
-        try { handleSection.parentNode.insertBefore(placeholderPill, handleSection); }
-        catch (e) { try { userNameContainer.appendChild(placeholderPill); } catch (e2) { } }
+      // 1. Try to find the "Name Row" (flex container with Name + Badge)
+      // The Name Row usually has 'r-18u37iz' (flex-row) and contains the name text.
+      // Specific targeting for Tweet Detail View where Name and Handle split
+      // We want to append to the row that has the Name.
+      // In the dump: User-Name -> Child(Row with Name+Badge)
+      const directFlexRowChild = Array.from(userNameContainer.children).find(child => child.classList.contains('r-18u37iz'));
+
+      if (directFlexRowChild) {
+        try {
+          directFlexRowChild.appendChild(placeholderPill);
+          // return; // Don't return here yet, we need to fetch data!
+          // Actually, we DO want to proceed to data fetching.
+          // The return in previous logic was likely skipping data fetch? No.
+          // Wait, the original code had `return; // Successfully inserted...` in the `if (directFlexRowChild)` 
+          // But that would SKIP `getUserLocation`! That was a BUG I introduced in thought, but let's check the logic flow.
+          // The logic flow continues to `try { const result = await getUserLocation` AFTER this block.
+          // So we should NOT return. We just break out of the insertion block.
+        } catch (e) { }
       } else {
-        try { userNameContainer.appendChild(placeholderPill); } catch (e) { }
+        // Fallback to insertion before handle if name row not found (Timeline logic)
+        const handleSection = findHandleSection(userNameContainer, screenName);
+        if (handleSection && handleSection.parentNode) {
+          try { handleSection.parentNode.insertBefore(placeholderPill, handleSection); }
+          catch (e) { try { userNameContainer.appendChild(placeholderPill); } catch (e2) { } }
+        } else {
+          try { userNameContainer.appendChild(placeholderPill); } catch (e) { }
+        }
       }
     }
 
@@ -942,7 +990,7 @@ async function addFlagToUsername(usernameElement, screenName) {
       if (!location) {
         // Keep placeholder with "?"
         placeholderPill.removeAttribute('data-loading');
-        usernameElement.dataset.flagAdded = 'true'; // Mark as done (even if no flag)
+        // usernameElement.dataset.flagAdded = 'true'; // Don't rely on this anymore for dedup
         return;
       }
 
@@ -1725,6 +1773,9 @@ const HovercardController = {
       this.anchor = anchor;
       this.screenName = screenName;
 
+      // Add active class to anchor
+      if (this.anchor) this.anchor.classList.add('ts-active');
+
       // Reset content to loading
       this.card.querySelectorAll('.ts-hc-val').forEach(el => {
         el.textContent = '...';
@@ -1737,6 +1788,7 @@ const HovercardController = {
     } else if (!this.card.classList.contains('visible')) {
       // Re-opening same anchor
       this.card.classList.add('visible');
+      if (this.anchor) this.anchor.classList.add('ts-active');
       this.position();
     }
 
@@ -1754,6 +1806,17 @@ const HovercardController = {
 
     if (this.locked && !force) return;
     this.reset();
+  },
+
+  reset() {
+    // Remove active class from previous anchor
+    if (this.anchor) {
+      this.anchor.classList.remove('ts-active');
+    }
+    this.card.classList.remove('visible');
+    this.anchor = null;
+    this.screenName = null;
+    this.locked = false;
   },
 
   closeWithDelay(delay = 300) {

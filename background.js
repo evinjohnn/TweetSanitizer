@@ -40,81 +40,14 @@ chrome.notifications.onClicked.addListener((notificationId) => {
 });
 
 
-// --- Google Analytics 4 (Measurement Protocol) ---
-const ga4mpLib = require('ga4-mp');
-const ga4mp = ga4mpLib.default || ga4mpLib;
+// --- Google Analytics Removed (MV3 Incompatibility) ---
+// The previous implementation used 'require' which is not supported in Service Workers.
+// Analytics tracking has been disabled to ensure stability.
 
-const GA_MEASUREMENT_ID = 'G-XXXXXXXXXX'; // TODO: Replace with your Measurement ID
-const GA_API_SECRET = 'YOUR_API_SECRET';   // TODO: Replace with your API Secret
-
-// Persistent Client ID Logic
-async function getOrCreateClientId() {
-    const result = await chrome.storage.local.get('client_id');
-    let clientId = result.client_id;
-    if (!clientId) {
-        clientId = self.crypto.randomUUID();
-        await chrome.storage.local.set({ client_id: clientId });
-    }
-    return clientId;
-}
-
-// Initialize GA4 with persistent ID
-async function getGA4() {
-    const clientId = await getOrCreateClientId();
-    return ga4mp([GA_MEASUREMENT_ID], {
-        api_secret: GA_API_SECRET,
-        client_id: clientId,
-        non_personalized_ads: true,
-    });
-}
-
-// Track Install/Update Events
-chrome.runtime.onInstalled.addListener(async (details) => {
-    try {
-        const ga4 = await getGA4();
-        const version = chrome.runtime.getManifest().version;
-
-        if (details.reason === 'install') {
-            // 1. Open Onboarding
-            // This is already handled by the first onInstalled listener, but keeping it here for context if that one is removed.
-            // chrome.tabs.create({ url: 'https://gum.new/gum/cmihc8rnk000l04kwbr6lcfuc' });
-
-            // 2. Track Install
-            await ga4.send([{
-                name: 'extension_install',
-                params: { version: version }
-            }]);
-            console.log('TweetSanitizer: Tracked install event');
-
-        } else if (details.reason === 'update') {
-            // Track Update
-            await ga4.send([{
-                name: 'extension_update',
-                params: {
-                    version: version,
-                    previous_version: details.previousVersion
-                }
-            }]);
-            console.log('TweetSanitizer: Tracked update event');
-        }
-    } catch (e) {
-        console.error('TweetSanitizer: Analytics error', e);
-    }
-});
-
-// Listen for tracking events from content scripts
+// Listen for tracking events from content scripts (Stubbed)
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     if (message.action === 'TRACK_EVENT') {
-        try {
-            const ga4 = await getGA4();
-            const { name, params } = message.payload;
-            await ga4.send([{
-                name: name,
-                params: params || {},
-            }]);
-        } catch (e) {
-            console.error('TweetSanitizer: Event tracking error', e);
-        }
+        // Analytics disabled
     }
 });
 
@@ -361,9 +294,9 @@ function parseXResponse(json) {
 // --- CENTRALIZED REQUEST QUEUE & DEDUPE ---
 
 class UserCache {
-    constructor(ttlDays = 7) {
+    constructor(ttlDays = 30) {
         this.ttlMs = ttlDays * 24 * 60 * 60 * 1000;
-        this.prefix = 'user_cache_';
+        this.prefix = 'ts_user_cache_'; // Standardized Key
     }
 
     async get(username) {
@@ -518,7 +451,7 @@ async function fetchDetailedUserData(screenName) {
         const csrf = keys.ts_api_csrf;
 
         if (!auth || !csrf) {
-            // console.warn('TweetSanitizer: Missing headers for fetch');
+            console.warn('TweetSanitizer (BG): ⚠️ Cannot fetch. Headers not yet captured. Please refresh the Twitter page.');
             return null;
         }
 
@@ -573,34 +506,86 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'FETCH_USER_DETAILS') {
         const { username } = message;
 
-        // 1. Check Global Cache First
-        globalCache.get(username).then(cachedData => {
-            if (cachedData) {
-                sendResponse(cachedData);
-                return;
-            }
-
-            // 2. Not in cache? Fetch via Queue
-            // Use Deduplicator -> Queue -> Fetch
-            globalDeduplicator.dedupe(username, () => {
-                return globalQueue.add(() => fetchDetailedUserData(username));
-            })
-                .then(data => {
-                    // 3. Save to Cache on success
-                    if (data) {
-                        globalCache.set(username, data);
-                    }
-                    sendResponse(data);
-                })
-                .catch(err => {
-                    if (err.status === 429) {
-                        sendResponse({ error: 'RATE_LIMITED', retryAfter: err.retryAfter });
-                    } else {
-                        sendResponse(null);
-                    }
-                });
-        });
+        handleUserDetailsRequest(username).then(sendResponse);
 
         return true; // Keep channel open
     }
 });
+
+async function handleUserDetailsRequest(username) {
+    // L1: Check Local Cache First
+    const cachedData = await globalCache.get(username);
+    if (cachedData) {
+        // console.log('L1 Cache Hit:', username);
+        return cachedData;
+    }
+
+    // L2: Check Cloud Cache (Worker)
+    try {
+        const cloudData = await fetchFromCloud(username);
+        if (cloudData) {
+            // console.log('L2 Cloud Hit:', username);
+            globalCache.set(username, cloudData); // Populate L1
+            return cloudData;
+        }
+    } catch (e) {
+        console.warn('TweetSanitizer (BG): Cloud fetch failed', e);
+    }
+
+    // L3: Not in cache? Fetch via Queue (X API)
+    // Use Deduplicator -> Queue -> Fetch
+    return globalDeduplicator.dedupe(username, () => {
+        return globalQueue.add(() => fetchDetailedUserData(username));
+    })
+        .then(data => {
+            // Save to Cache on success
+            if (data) {
+                globalCache.set(username, data);
+                // Note: Upload to cloud happens via ALARM or Tab Update (processUploadQueue)
+                // We add to upload queue in the 'set' logic? 
+                // Wait, processUploadQueue reads from STORAGE. 
+                // We need to ensure logic that adds to upload queue is present.
+                // Currently 'globalCache.set' only sets cache. 
+                // We need to add to 'pending_uploads' queue if it's a fresh fetch.
+                addToUploadQueue(username, data.location);
+            }
+            return data;
+        })
+        .catch(err => {
+            if (err.status === 429) {
+                return { error: 'RATE_LIMITED', retryAfter: err.retryAfter };
+            } else {
+                return null;
+            }
+        });
+}
+
+async function fetchFromCloud(username) {
+    try {
+        const url = `${CLOUD_API_URL}/lookup?users=${encodeURIComponent(username)}`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+
+        const json = await response.json();
+        // Response format: { "username": { location: "...", data: {...} } }
+        const entry = json[username.toLowerCase()]; // Key is lowercase
+
+        if (entry && entry.data) {
+            return entry.data;
+        }
+        return null; // No rich data
+    } catch (e) {
+        return null;
+    }
+}
+
+async function addToUploadQueue(username, location) {
+    try {
+        const result = await chrome.storage.local.get(UPLOAD_QUEUE_KEY);
+        const queue = result[UPLOAD_QUEUE_KEY] || {};
+        queue[username] = location || "Unknown"; // Queue needs location for simple fallback
+        await chrome.storage.local.set({ [UPLOAD_QUEUE_KEY]: queue });
+    } catch (e) {
+        console.error('Queue add failed', e);
+    }
+}

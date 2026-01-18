@@ -6,7 +6,10 @@
     --ts-text: #e7e9ea;
     --ts-border: #2f3336;
     --ts-accent: #1d9bf0;
-    --ts-pill-bg: rgba(29, 155, 240, 0.15);
+
+    /* Default State: Minimal/Transparent */
+    --ts-pill-bg: rgba(255, 255, 255, 0.03);
+    --ts-pill-border: rgba(255, 255, 255, 0.08);
 }
 
 [data-theme="light"] {
@@ -14,34 +17,58 @@
     --ts-bg: #ffffff;
     --ts-text: #0f1419;
     --ts-border: #cfd9de;
-    --ts-pill-bg: rgba(29, 155, 240, 0.1);
+
+    /* Light Mode Default */
+    --ts-pill-bg: rgba(0, 0, 0, 0.04);
+    --ts-pill-border: rgba(0, 0, 0, 0.06);
 }
 
 /* 2. The Pill Badge */
 .ts-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 0;
     margin-left: 8px;
-    padding: 2px 8px;
+    padding: 3px 10px;
+
     background: var(--ts-pill-bg);
-    border: 1px solid var(--ts-accent);
-    border-radius: 12px;
+    border: 1px solid var(--ts-pill-border);
+    backdrop-filter: blur(4px);
+    /* Glass Effect */
+
+    border-radius: 999px;
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: transform 0.2s ease;
+    line-height: 1.5;
+    white-space: nowrap;
+    flex-shrink: 0;
+    width: fit-content;
+
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    color: var(--ts-text);
 }
 
 .ts-pill:hover {
-    transform: scale(1.05);
-    background: var(--ts-accent);
-    color: white;
+    transform: translateY(-1px);
+    border-color: var(--ts-accent);
+    background: rgba(29, 155, 240, 0.15);
+    /* Blue Tint */
+    box-shadow: 0 4px 12px rgba(29, 155, 240, 0.15);
+    /* Blue Glow */
+}
+
+/* Details Link Hover specific */
+/* Details Link Hover specific - Trigger when PILL is hovered OR ACTIVE */
+.ts-pill:hover .ts-details-link,
+.ts-pill.ts-active .ts-details-link {
+    color: #ffffff !important;
 }
 
 /* 3. The Rich Hovercard */
 .ts-hovercard {
-    position: absolute;
+    position: fixed;
     z-index: 10000;
     width: 300px;
     background: var(--ts-bg);

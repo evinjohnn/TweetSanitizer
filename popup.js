@@ -9,8 +9,18 @@ const DEFAULT_ENABLED = true;
 async function loadStats() {
   try {
     // Get cache data
-    const result = await chrome.storage.local.get([CACHE_KEY]);
-    const cache = result[CACHE_KEY] || {};
+    // Get all keys and filter by prefix
+    const allStorage = await chrome.storage.local.get(null);
+    const CACHE_PREFIX = 'ts_user_cache_';
+    const cache = {};
+
+    for (const [key, value] of Object.entries(allStorage)) {
+      if (key.startsWith(CACHE_PREFIX)) {
+        // Strip prefix for username
+        const username = key.replace(CACHE_PREFIX, '');
+        cache[username] = value;
+      }
+    }
 
     // Count valid entries
     const now = Date.now();
@@ -101,7 +111,9 @@ async function toggleExtension() {
 // Clear cache
 async function clearCache() {
   try {
-    await chrome.storage.local.remove(CACHE_KEY);
+    const allKeys = await chrome.storage.local.get(null);
+    const keysToRemove = Object.keys(allKeys).filter(k => k.startsWith('ts_user_cache_'));
+    await chrome.storage.local.remove(keysToRemove);
     await loadStats();
     showStatus('Cache cleared successfully', true);
   } catch (error) {
