@@ -936,14 +936,15 @@ async function addFlagToUsername(usernameElement, screenName) {
         const img = document.createElement('img');
         img.src = `https://abs-0.twimg.com/emoji/v2/svg/${hexCode}.svg`;
         img.alt = emoji;
+        img.title = location || ''; // Tooltip on image
         img.draggable = false;
-        img.style.cssText = 'height: 1em; width: auto; vertical-align: -0.1em;';
+        img.style.cssText = 'height: 1em; width: auto; vertical-align: -0.1em; cursor: default;';
         img.onerror = () => { flagPart.textContent = emoji; };
         flagPart.textContent = '';
         flagPart.appendChild(img);
       }
 
-      // Set tooltip with location name
+      // Set tooltip with location name on container too
       flagPart.title = location || '';
 
       placeholderPill.removeAttribute('data-loading');
