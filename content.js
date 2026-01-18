@@ -1776,8 +1776,7 @@ function getDetailsHovercard() {
 
   // Close button
   detailsHovercard.querySelector('.ts-hc-close').addEventListener('click', () => {
-    isHovercardLocked = false;
-    hideDetailsHovercard();
+    forceCloseHovercard();
   });
 
   // Keep alive on hover
@@ -1789,6 +1788,13 @@ function getDetailsHovercard() {
   });
 
   return detailsHovercard;
+}
+
+function forceCloseHovercard() {
+  isHovercardLocked = false;
+  hovercardAnchorElement = null;
+  pendingDetailRequests.clear();
+  if (detailsHovercard) detailsHovercard.classList.remove('visible');
 }
 
 function showDetailsHovercard(screenName, anchorElement, mode = 'hover') {
@@ -1809,11 +1815,22 @@ function showDetailsHovercard(screenName, anchorElement, mode = 'hover') {
 
   // If switching elements or force showing
   if (hovercardAnchorElement !== anchorElement) {
-    // Reset if it was open
-    if (detailsHovercard) detailsHovercard.classList.remove('visible');
-
-    // Store anchor element for scroll tracking
+    // 🔥 FULL RESET when switching users
+    isHovercardLocked = (mode === 'click');
     hovercardAnchorElement = anchorElement;
+
+    // Cancel all pending requests
+    pendingDetailRequests.clear();
+
+    // Reset UI immediately
+    const card = getDetailsHovercard();
+    card.classList.remove('visible');
+
+    // Reset content to loading
+    card.querySelectorAll('.ts-hc-val').forEach(el => {
+      el.textContent = '...';
+      el.className = 'ts-hc-val loading';
+    });
 
     // Request data from pageScript
     const requestId = `details_${Date.now()}_${Math.random()}`;
@@ -1823,14 +1840,10 @@ function showDetailsHovercard(screenName, anchorElement, mode = 'hover') {
       requestId: requestId
     }, '*');
 
-    // Store pending request
-    pendingDetailRequests.set(requestId, screenName);
-
-    // Reset content to loading
-    const card = getDetailsHovercard();
-    card.querySelectorAll('.ts-hc-val').forEach(el => {
-      el.textContent = '...';
-      el.className = 'ts-hc-val loading';
+    // Store pending request with anchor validation
+    pendingDetailRequests.set(requestId, {
+      screenName,
+      anchorElement
     });
   }
 
@@ -1853,9 +1866,7 @@ function hideDetailsHovercard(delay = 0, force = false) {
   if (hoverTimeout) clearTimeout(hoverTimeout);
 
   if (force) {
-    isHovercardLocked = false;
-    if (detailsHovercard) detailsHovercard.classList.remove('visible');
-    hovercardAnchorElement = null;
+    forceCloseHovercard();
     return;
   }
 
@@ -1876,7 +1887,7 @@ function hideDetailsHovercard(delay = 0, force = false) {
 
 function populateDetailsHovercard(data) {
   const card = getDetailsHovercard();
-  if (!card.classList.contains('visible')) return;
+  // We don't check visible class here because it might be loading, just ensure anchor matches request below
 
   const setValue = (field, value, className = '') => {
     const el = card.querySelector(`[data-field="${field}"]`);
@@ -1938,37 +1949,45 @@ window.addEventListener('message', (event) => {
   if (event.data && event.data.type === '__accountDetailsResponse') {
     console.log('TweetSanitizer: Received __accountDetailsResponse', event.data);
     const { requestId, data, error, retryAfter } = event.data;
-    if (pendingDetailRequests.has(requestId)) {
-      pendingDetailRequests.delete(requestId);
 
-      if (error === 'RATE_LIMITED') {
-        // Show rate limit message in hovercard
-        const card = getDetailsHovercard();
-        if (card.classList.contains('visible')) {
-          card.querySelectorAll('.ts-hc-val').forEach(el => {
-            el.textContent = '—';
-            el.className = 'ts-hc-val';
-          });
-          const firstVal = card.querySelector('.ts-hc-val');
-          if (firstVal) {
-            firstVal.textContent = `Rate limited. Wait ${retryAfter || 900}s`;
-            firstVal.className = 'ts-hc-val warning';
-          }
+    const requestMeta = pendingDetailRequests.get(requestId);
+    if (!requestMeta) return;
+
+    pendingDetailRequests.delete(requestId);
+
+    // ❌ Ignore stale responses
+    if (requestMeta.anchorElement !== hovercardAnchorElement) {
+      return;
+    }
+
+    if (error === 'RATE_LIMITED') {
+      // Show rate limit message in hovercard
+      const card = getDetailsHovercard();
+      if (card.classList.contains('visible')) {
+        card.querySelectorAll('.ts-hc-val').forEach(el => {
+          el.textContent = '—';
+          el.className = 'ts-hc-val';
+        });
+
+        // Show specific error using a convenient field or modal
+        const firstVal = card.querySelector('.ts-hc-val');
+        if (firstVal) {
+          firstVal.textContent = `Wait ${retryAfter}s`;
+          firstVal.className = 'ts-hc-val warning';
         }
-        console.warn(`TweetSanitizer: Rate limited. Try again in ${retryAfter}s`);
-      } else if (data) {
-        console.log('TweetSanitizer: Populating hovercard with data', data);
-        populateDetailsHovercard(data);
-      } else {
-        console.log('TweetSanitizer: No data received');
-        // Show error state
-        const card = getDetailsHovercard();
-        if (card.classList.contains('visible')) {
-          const firstVal = card.querySelector('.ts-hc-val');
-          if (firstVal) {
-            firstVal.textContent = 'Error loading data';
-            firstVal.className = 'ts-hc-val warning';
-          }
+      }
+    } else if (data) {
+      console.log('TweetSanitizer: Populating hovercard with data', data);
+      populateDetailsHovercard(data);
+    } else {
+      console.log('TweetSanitizer: No data received');
+      // Show error state
+      const card = getDetailsHovercard();
+      if (card.classList.contains('visible')) {
+        const firstVal = card.querySelector('.ts-hc-val');
+        if (firstVal) {
+          firstVal.textContent = 'Error';
+          firstVal.className = 'ts-hc-val warning';
         }
       }
     }
@@ -1976,11 +1995,10 @@ window.addEventListener('message', (event) => {
 });
 
 // Close hovercard when clicking outside
-// Close hovercard when clicking outside
 document.addEventListener('click', (e) => {
   if (detailsHovercard && detailsHovercard.classList.contains('visible')) {
     if (!detailsHovercard.contains(e.target) && !e.target.closest('[data-twitter-flag]')) {
-      hideDetailsHovercard(0, true); // Force hide
+      forceCloseHovercard(); // Force hide
     }
   }
 });
@@ -1994,7 +2012,7 @@ window.addEventListener('scroll', () => {
     const isInView = anchorRect.top >= -50 && anchorRect.bottom <= window.innerHeight + 50;
 
     if (!isInView) {
-      hideDetailsHovercard(0, true); // Force hide if out of view
+      forceCloseHovercard(); // Force hide if out of view
       return;
     }
 
@@ -2012,6 +2030,6 @@ window.addEventListener('scroll', () => {
 // Close hovercard on Escape key
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && detailsHovercard && detailsHovercard.classList.contains('visible')) {
-    hideDetailsHovercard(0, true); // Force hide
+    forceCloseHovercard(); // Force hide
   }
 });
