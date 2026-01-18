@@ -1845,16 +1845,18 @@ function populateDetailsHovercard(data) {
   // Device Formatting
   if (data.device) {
     let deviceRaw = data.device.toLowerCase();
-    let deviceDisplay = data.device;
 
     if (deviceRaw.includes('android')) {
-      deviceDisplay = 'Android';
-    } else if (deviceRaw.includes('iphone') || deviceRaw.includes('ipad') || deviceRaw.includes('ios')) {
-      deviceDisplay = 'iOS';
+      setValue('device', 'Android');
+    } else if (deviceRaw.includes('iphone') || deviceRaw.includes('ipad') || deviceRaw.includes('ios') || deviceRaw.includes('app store')) {
+      setValue('device', 'iOS');
     } else if (deviceRaw.includes('web') || deviceRaw.includes('twitter for web')) {
-      deviceDisplay = 'Web';
+      setValue('device', 'Web');
+    } else {
+      // For others, clean up "Twitter for ..." or show as is if readable, else "Browser"
+      let clean = data.device.replace(/^Twitter for /i, '').replace(/^Twitter /i, '');
+      setValue('device', clean);
     }
-    setValue('device', deviceDisplay);
   } else {
     setValue('device', 'Unknown');
   }
