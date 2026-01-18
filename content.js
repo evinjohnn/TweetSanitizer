@@ -1739,11 +1739,18 @@ const HovercardController = {
   position() {
     if (!this.anchor || !this.card) return;
     const rect = this.anchor.getBoundingClientRect();
+
     const top = rect.bottom + window.scrollY + 8;
-    let left = rect.left;
-    if (left + 300 > window.innerWidth) {
-      left = window.innerWidth - 310;
+    let left = rect.left + window.scrollX;
+
+    const CARD_WIDTH = 300;
+    if (left + CARD_WIDTH > window.innerWidth + window.scrollX - 20) {
+      // Adjusted logic to respect document boundaries nicely
+      left = window.innerWidth + window.scrollX - CARD_WIDTH - 20;
     }
+    // Fallback: don't let it go off-screen left
+    if (left < 0) left = 10;
+
     this.card.style.top = `${top}px`;
     this.card.style.left = `${left}px`;
   },
@@ -1827,17 +1834,18 @@ function getDetailsHovercard() {
   const style = document.createElement('style');
   style.textContent = `
     #ts-details-hovercard {
-      position: fixed;
+      position: absolute;
       z-index: 999999;
       width: 300px;
-      background: rgba(22, 24, 28, 0.65);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
-      backdrop-filter: blur(24px) saturate(180%);
+      padding-bottom: 0;
+      background: rgba(21, 23, 27, 0.85);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      backdrop-filter: blur(20px) saturate(180%);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
       box-shadow: 
-        0 4px 6px rgba(0, 0, 0, 0.1),
-        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 1px 2px rgba(0, 0, 0, 0.1),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: #e7e9ea;
@@ -1854,27 +1862,29 @@ function getDetailsHovercard() {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 14px;
+      padding: 10px 14px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.02);
     }
     .ts-hc-title {
-      font-weight: 600;
+      font-weight: 700;
       font-size: 13px;
       color: #e7e9ea;
       letter-spacing: -0.01em;
     }
     .ts-hc-close {
-      width: 18px;
-      height: 18px;
+      width: 20px;
+      height: 20px;
       cursor: pointer;
-      opacity: 0.5;
+      opacity: 0.6;
       transition: opacity 0.15s;
-      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e7e9ea' stroke-width='2'%3E%3Cpath d='M18 6L6 18M6 6l12 12'/%3E%3C/svg%3E") center/contain no-repeat;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e7e9ea' stroke-width='2'%3E%3Cpath d='M18 6L6 18M6 6l12 12'/%3E%3C/svg%3E") center/50% no-repeat;
     }
-    .ts-hc-close:hover { opacity: 1; }
+    .ts-hc-close:hover { opacity: 1; background-color: rgba(255, 255, 255, 0.2); }
     .ts-hc-body { padding: 4px 0; }
     .ts-hc-section {
-      padding: 6px 14px;
+      padding: 8px 14px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
     .ts-hc-section:last-child { border-bottom: none; }
@@ -1882,27 +1892,29 @@ function getDetailsHovercard() {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 5px 0;
-      font-size: 12px;
+      padding: 3px 0;
+      font-size: 13px;
+      line-height: 1.4;
     }
     .ts-hc-label { 
-      color: #71767b;
-      font-weight: 400;
+      color: #8b98a5;
+      font-weight: 500;
+      font-size: 12px;
     }
     .ts-hc-val { 
-      font-weight: 500; 
+      font-weight: 600; 
       color: #e7e9ea;
       text-align: right;
-      max-width: 160px;
+      max-width: 170px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .ts-hc-val.verified { color: #00ba7c; }
-    .ts-hc-val.warning { color: #ff6b6b; }
+    .ts-hc-val.warning { color: #f4212e; }
     .ts-hc-val.blue { color: #1d9bf0; }
     .ts-hc-val.gold { color: #ffd93d; }
-    .ts-hc-val.loading { color: #536471; }
+    .ts-hc-val.loading { color: #536471; font-weight: 400; }
   `;
   document.head.appendChild(style);
   document.body.appendChild(detailsHovercard);
@@ -2005,16 +2017,14 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Update hovercard position on scroll, close if anchor is out of view
+// Update hovercard position on scroll
 window.addEventListener('scroll', () => {
   HovercardController.position();
+}, { passive: true });
 
-  if (HovercardController.anchor) {
-    const rect = HovercardController.anchor.getBoundingClientRect();
-    if (rect.bottom < -50 || rect.top > window.innerHeight + 50) {
-      HovercardController.close(true);
-    }
-  }
+// Update position on resize
+window.addEventListener('resize', () => {
+  HovercardController.position();
 }, { passive: true });
 
 // Close hovercard on Escape key
