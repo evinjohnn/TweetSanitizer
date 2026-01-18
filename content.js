@@ -1668,7 +1668,6 @@ function getDetailsHovercard() {
       <div class="ts-hc-section">
         <div class="ts-hc-row"><span class="ts-hc-label">Location</span><span class="ts-hc-val" data-field="location">—</span></div>
         <div class="ts-hc-row"><span class="ts-hc-label">Created In</span><span class="ts-hc-val" data-field="createdIn">—</span></div>
-        <div class="ts-hc-row"><span class="ts-hc-label">VPN/Proxy</span><span class="ts-hc-val" data-field="vpn">—</span></div>
         <div class="ts-hc-row"><span class="ts-hc-label">Device</span><span class="ts-hc-val" data-field="device">—</span></div>
       </div>
       <div class="ts-hc-section">
@@ -1843,16 +1842,22 @@ function populateDetailsHovercard(data) {
     setValue('createdIn', 'Unknown');
   }
 
-  // VPN Detection
-  if (data.locationAccurate === false) {
-    setValue('vpn', '⚠️ Likely', 'warning');
-  } else if (data.locationAccurate === true) {
-    setValue('vpn', '✓ No', 'verified');
-  } else {
-    setValue('vpn', 'Unknown');
-  }
+  // Device Formatting
+  if (data.device) {
+    let deviceRaw = data.device.toLowerCase();
+    let deviceDisplay = data.device;
 
-  setValue('device', data.device);
+    if (deviceRaw.includes('android')) {
+      deviceDisplay = 'Android';
+    } else if (deviceRaw.includes('iphone') || deviceRaw.includes('ipad') || deviceRaw.includes('ios')) {
+      deviceDisplay = 'iOS';
+    } else if (deviceRaw.includes('web') || deviceRaw.includes('twitter for web')) {
+      deviceDisplay = 'Web';
+    }
+    setValue('device', deviceDisplay);
+  } else {
+    setValue('device', 'Unknown');
+  }
 
   // Username Changes
   if (data.usernameChanges > 0) {
