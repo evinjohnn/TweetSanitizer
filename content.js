@@ -115,6 +115,24 @@ const DEFAULT_ENABLED = true;
 
 const processingUsernames = new Set();
 
+// Listen for messages from pageScript
+window.addEventListener('message', (event) => {
+  if (event.source !== window || !event.data) return;
+
+  if (event.data.type === '__headersIntercepted') {
+    // console.log('TweetSanitizer Content: Headers intercepted from pageScript');
+    // Forward headers to background script
+    const { authorization, csrfToken } = event.data;
+    if (authorization && csrfToken) {
+      // console.log('TweetSanitizer Content: Sending headers to Background');
+      chrome.runtime.sendMessage({
+        action: 'SAVE_TWITTER_HEADERS',
+        payload: { authorization, csrfToken }
+      });
+    }
+  }
+});
+
 let lastScrollY = 0;
 let lastScrollTime = Date.now();
 let scrollVelocity = 0;

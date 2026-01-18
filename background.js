@@ -527,6 +527,7 @@ async function fetchDetailedUserData(screenName) {
 
         const response = await fetch(url, {
             method: "GET",
+            credentials: "include", // Required to send cookies (auth_token, ct0)
             headers: {
                 "authorization": auth,
                 "x-csrf-token": csrf,
