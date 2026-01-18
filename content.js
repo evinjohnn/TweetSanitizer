@@ -859,12 +859,18 @@ async function addFlagToUsername(usernameElement, screenName) {
     const detailsLink = document.createElement('span');
     detailsLink.textContent = 'Details';
     detailsLink.style.cssText = 'color: #71767b; font-weight: 500; cursor: pointer; transition: color 0.15s;';
-    detailsLink.addEventListener('mouseenter', () => { detailsLink.style.color = '#1d9bf0'; });
-    detailsLink.addEventListener('mouseleave', () => { detailsLink.style.color = '#71767b'; });
+    detailsLink.addEventListener('mouseenter', () => {
+      detailsLink.style.color = '#1d9bf0';
+      showDetailsHovercard(screenName, placeholderPill, 'hover');
+    });
+    detailsLink.addEventListener('mouseleave', () => {
+      detailsLink.style.color = '#71767b';
+      if (!isHovercardLocked) hideDetailsHovercard(300);
+    });
     detailsLink.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      showDetailsHovercard(screenName, placeholderPill);
+      showDetailsHovercard(screenName, placeholderPill, 'click');
     });
 
     placeholderPill.appendChild(flagPart);
@@ -1647,6 +1653,8 @@ if (document.readyState === 'loading') {
 let detailsHovercard = null;
 let pendingDetailRequests = new Map();
 let hovercardAnchorElement = null; // Track which pill opened the hovercard
+let isHovercardLocked = false; // True if opened via click
+let hoverTimeout = null; // For delayed hiding on mouseleave
 
 // Create the hovercard element
 function getDetailsHovercard() {
@@ -1767,17 +1775,66 @@ function getDetailsHovercard() {
   document.body.appendChild(detailsHovercard);
 
   // Close button
-  detailsHovercard.querySelector('.ts-hc-close').addEventListener('click', hideDetailsHovercard);
+  detailsHovercard.querySelector('.ts-hc-close').addEventListener('click', () => {
+    isHovercardLocked = false;
+    hideDetailsHovercard();
+  });
+
+  // Keep alive on hover
+  detailsHovercard.addEventListener('mouseenter', () => {
+    if (hoverTimeout) clearTimeout(hoverTimeout);
+  });
+  detailsHovercard.addEventListener('mouseleave', () => {
+    if (!isHovercardLocked) hideDetailsHovercard(300);
+  });
 
   return detailsHovercard;
 }
 
-function showDetailsHovercard(screenName, anchorElement) {
-  console.log('TweetSanitizer: showDetailsHovercard called for', screenName);
-  const card = getDetailsHovercard();
+function showDetailsHovercard(screenName, anchorElement, mode = 'hover') {
+  if (hoverTimeout) {
+    clearTimeout(hoverTimeout);
+    hoverTimeout = null;
+  }
 
-  // Store anchor element for scroll tracking
-  hovercardAnchorElement = anchorElement;
+  // If locked on another element, ignore hover
+  if (isHovercardLocked && mode === 'hover' && hovercardAnchorElement !== anchorElement) {
+    return;
+  }
+
+  // If clicking, update lock state
+  if (mode === 'click') {
+    isHovercardLocked = true;
+  }
+
+  // If switching elements or force showing
+  if (hovercardAnchorElement !== anchorElement) {
+    // Reset if it was open
+    if (detailsHovercard) detailsHovercard.classList.remove('visible');
+
+    // Store anchor element for scroll tracking
+    hovercardAnchorElement = anchorElement;
+
+    // Request data from pageScript
+    const requestId = `details_${Date.now()}_${Math.random()}`;
+    window.postMessage({
+      type: '__fetchAccountDetails',
+      screenName: screenName,
+      requestId: requestId
+    }, '*');
+
+    // Store pending request
+    pendingDetailRequests.set(requestId, screenName);
+
+    // Reset content to loading
+    const card = getDetailsHovercard();
+    card.querySelectorAll('.ts-hc-val').forEach(el => {
+      el.textContent = '...';
+      el.className = 'ts-hc-val loading';
+    });
+  }
+
+  const card = getDetailsHovercard();
 
   // Position card based on anchor element
   const anchorRect = anchorElement.getBoundingClientRect();
@@ -1789,32 +1846,32 @@ function showDetailsHovercard(screenName, anchorElement) {
   card.style.top = `${top}px`;
   card.style.left = `${left}px`;
 
-  // Reset all values to loading state
-  card.querySelectorAll('.ts-hc-val').forEach(el => {
-    el.textContent = '...';
-    el.className = 'ts-hc-val loading';
-  });
-
   card.classList.add('visible');
-  console.log('TweetSanitizer: Hovercard shown, sending request to pageScript');
-
-  // Request data from pageScript
-  const requestId = `details_${Date.now()}_${Math.random()}`;
-  window.postMessage({
-    type: '__fetchAccountDetails',
-    screenName: screenName,
-    requestId: requestId
-  }, '*');
-
-  // Store pending request
-  pendingDetailRequests.set(requestId, screenName);
 }
 
-function hideDetailsHovercard() {
-  if (detailsHovercard) {
-    detailsHovercard.classList.remove('visible');
+function hideDetailsHovercard(delay = 0, force = false) {
+  if (hoverTimeout) clearTimeout(hoverTimeout);
+
+  if (force) {
+    isHovercardLocked = false;
+    if (detailsHovercard) detailsHovercard.classList.remove('visible');
+    hovercardAnchorElement = null;
+    return;
   }
-  hovercardAnchorElement = null;
+
+  if (delay > 0) {
+    hoverTimeout = setTimeout(() => {
+      if (!isHovercardLocked) {
+        if (detailsHovercard) detailsHovercard.classList.remove('visible');
+        hovercardAnchorElement = null;
+      }
+    }, delay);
+  } else {
+    if (!isHovercardLocked) {
+      if (detailsHovercard) detailsHovercard.classList.remove('visible');
+      hovercardAnchorElement = null;
+    }
+  }
 }
 
 function populateDetailsHovercard(data) {
@@ -1919,10 +1976,11 @@ window.addEventListener('message', (event) => {
 });
 
 // Close hovercard when clicking outside
+// Close hovercard when clicking outside
 document.addEventListener('click', (e) => {
   if (detailsHovercard && detailsHovercard.classList.contains('visible')) {
     if (!detailsHovercard.contains(e.target) && !e.target.closest('[data-twitter-flag]')) {
-      hideDetailsHovercard();
+      hideDetailsHovercard(0, true); // Force hide
     }
   }
 });
@@ -1936,7 +1994,7 @@ window.addEventListener('scroll', () => {
     const isInView = anchorRect.top >= -50 && anchorRect.bottom <= window.innerHeight + 50;
 
     if (!isInView) {
-      hideDetailsHovercard();
+      hideDetailsHovercard(0, true); // Force hide if out of view
       return;
     }
 
@@ -1954,6 +2012,6 @@ window.addEventListener('scroll', () => {
 // Close hovercard on Escape key
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && detailsHovercard && detailsHovercard.classList.contains('visible')) {
-    hideDetailsHovercard();
+    hideDetailsHovercard(0, true); // Force hide
   }
 });
