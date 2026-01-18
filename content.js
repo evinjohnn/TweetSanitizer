@@ -830,21 +830,25 @@ async function addFlagToUsername(usernameElement, screenName) {
     placeholderPill.style.cssText = `
       display: inline-flex;
       align-items: center;
-      margin-left: 6px;
-      padding: 1px 6px 1px 4px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(113, 118, 123, 0.3);
+      margin-left: 8px;
+      padding: 2px 8px 2px 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(113, 118, 123, 0.4);
       border-radius: 999px;
       font-size: 11px;
       vertical-align: middle;
       gap: 0;
+      transition: border-color 0.15s;
     `;
+    placeholderPill.addEventListener('mouseenter', () => { placeholderPill.style.borderColor = 'rgba(29, 155, 240, 0.5)'; });
+    placeholderPill.addEventListener('mouseleave', () => { placeholderPill.style.borderColor = 'rgba(113, 118, 123, 0.4)'; });
 
     // Flag placeholder
     const flagPart = document.createElement('span');
     flagPart.className = 'ts-flag-part';
     flagPart.textContent = '?';
-    flagPart.style.cssText = 'color: #536471; font-size: 10px; font-weight: bold;';
+    flagPart.title = 'Loading location...';
+    flagPart.style.cssText = 'color: #536471; font-size: 11px; font-weight: bold; cursor: default; padding-left: 2px;';
 
     // Separator
     const separator = document.createElement('span');
@@ -938,6 +942,9 @@ async function addFlagToUsername(usernameElement, screenName) {
         flagPart.textContent = '';
         flagPart.appendChild(img);
       }
+
+      // Set tooltip with location name
+      flagPart.title = location || '';
 
       placeholderPill.removeAttribute('data-loading');
       usernameElement.dataset.flagAdded = 'true';
