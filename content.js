@@ -86,14 +86,49 @@ async function getUniqueUserId() {
   return newId;
 }
 
+// --- DEBUG MODE ---
+let DEBUG_MODE = false;
+
+// Initialize debug mode from storage
+chrome.storage.local.get(['debug_mode_enabled'], (result) => {
+  DEBUG_MODE = result.debug_mode_enabled || false;
+});
+
+// Listen for debug mode toggle from popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'debugModeToggle') {
+    DEBUG_MODE = message.enabled;
+    debugLog('Debug mode:', DEBUG_MODE ? 'ENABLED' : 'DISABLED');
+  }
+});
+
+// Debug logging helper - only logs when debug mode is on
+function debugLog(...args) {
+  if (DEBUG_MODE) {
+    console.log('TweetSanitizer:', ...args);
+  }
+}
+
 let locationCache = new Map();
 const CACHE_KEY = 'twitter_location_cache';
 const CACHE_EXPIRY_DAYS = 30; // Cache for 30 days
 
+
 // Cloud API Configuration
 const CLOUD_API_URL = 'https://tweet-sanitizer-api.tweetsanitizer.workers.dev';
-const BATCH_SIZE = 5; // Process 5 items at a time
+const BATCH_SIZE = 20; // Batch size for cloud requests
 const UPLOAD_QUEUE_KEY = 'pending_uploads';
+
+// --- PHASE 2: Bucket/Buffer System (AGGRESSIVE) ---
+const FLAG_BUCKET_DEBOUNCE_MS = 50; // Fast 50ms debounce for quick batching
+const FLAG_BUCKET_MAX_SIZE = 15; // Flush earlier for faster display
+let flagBucket = new Map(); // Map<username, { element, resolve, reject }>
+let flagBucketTimeout = null;
+
+// Direct Drip Configuration (Phase 4 fallback - AGGRESSIVE)
+const DIRECT_DRIP_INTERVAL_MS = 400; // 400ms between direct API calls (was 1500ms)
+let directDripQueue = [];
+let lastDirectDripTime = 0;
 // Removed UPLOAD_INTERVAL and uploadIntervalRef as upload is now handled by background.js
 // Request Queue moved to background.js
 // const requestQueue = []; 
@@ -435,6 +470,179 @@ async function fetchFromCloud(usernames) {
   }
 }
 
+// --- PHASE 2: Bucket Add (150ms debounce) ---
+function addToBucket(screenName, element) {
+  return new Promise((resolve, reject) => {
+    // Check local cache first (Phase 1)
+    if (locationCache.has(screenName)) {
+      resolve(locationCache.get(screenName));
+      return;
+    }
+
+    // Add to bucket
+    if (!flagBucket.has(screenName)) {
+      flagBucket.set(screenName, { element, resolve, reject });
+    } else {
+      // If already in bucket, just add another resolver
+      const existing = flagBucket.get(screenName);
+      const originalResolve = existing.resolve;
+      existing.resolve = (data) => {
+        originalResolve(data);
+        resolve(data);
+      };
+    }
+
+    // Reset debounce timer
+    if (flagBucketTimeout) {
+      clearTimeout(flagBucketTimeout);
+    }
+
+    // Force flush if bucket too large
+    if (flagBucket.size >= FLAG_BUCKET_MAX_SIZE) {
+      flushFlagBucket();
+    } else {
+      // Debounce 150ms
+      flagBucketTimeout = setTimeout(() => {
+        flushFlagBucket();
+      }, FLAG_BUCKET_DEBOUNCE_MS);
+    }
+  });
+}
+
+// --- PHASE 3: Cloud Batch Fetch ---
+async function flushFlagBucket() {
+  if (flagBucket.size === 0) return;
+
+  // Clear timeout
+  if (flagBucketTimeout) {
+    clearTimeout(flagBucketTimeout);
+    flagBucketTimeout = null;
+  }
+
+  // Grab current bucket and reset
+  const currentBucket = new Map(flagBucket);
+  flagBucket.clear();
+
+  const usernames = Array.from(currentBucket.keys());
+  debugLog(`Flushing bucket with ${usernames.length} users:`, usernames);
+
+  try {
+    // Phase 3: Cloud batch request
+    const cloudResults = await fetchFromCloud(usernames);
+
+    for (const [username, { element, resolve, reject }] of currentBucket) {
+      // Cloud API returns: { username: { location: "...", data: {...} } } or { username: "location_string" }
+      let cloudEntry = cloudResults ? (cloudResults[username] || cloudResults[username.toLowerCase()]) : null;
+      let cloudLocation = null;
+      let cloudData = null;
+
+      if (cloudEntry) {
+        if (typeof cloudEntry === 'string') {
+          // Simple format: { username: "location" }
+          cloudLocation = cloudEntry;
+        } else if (typeof cloudEntry === 'object') {
+          // Rich format: { username: { location: "...", data: {...} } }
+          cloudLocation = cloudEntry.location || null;
+          cloudData = cloudEntry.data || cloudEntry;
+        }
+      }
+
+      if (cloudLocation) {
+        // Cloud HIT
+        const result = cloudData ? { ...cloudData, location: cloudLocation, source: 'cloud' } : { location: cloudLocation, userId: null, source: 'cloud' };
+        saveCacheEntry(username, result);
+        resolve(result);
+      } else {
+        // Cloud MISS -> Add to Direct Drip queue (Phase 4)
+        addToDripQueue(username, element, resolve, reject);
+      }
+    }
+  } catch (error) {
+    console.error('TweetSanitizer: Bucket flush failed', error);
+    // On error, add all to drip queue as fallback
+    for (const [username, { element, resolve, reject }] of currentBucket) {
+      addToDripQueue(username, element, resolve, reject);
+    }
+  }
+}
+
+// --- PHASE 4: Direct Drip (AGGRESSIVE parallel fallback) ---
+const DIRECT_DRIP_MAX_CONCURRENT = 3; // Process 3 at a time
+let directDripActive = 0;
+
+function addToDripQueue(screenName, element, resolve, reject) {
+  directDripQueue.push({ screenName, element, resolve, reject });
+  processDripQueue();
+}
+
+async function processDripQueue() {
+  // Process multiple items in parallel up to max concurrent
+  while (directDripActive < DIRECT_DRIP_MAX_CONCURRENT && directDripQueue.length > 0) {
+    const now = Date.now();
+    const timeSinceLast = now - lastDirectDripTime;
+
+    // Enforce minimum interval between request starts
+    if (timeSinceLast < DIRECT_DRIP_INTERVAL_MS) {
+      setTimeout(() => processDripQueue(), DIRECT_DRIP_INTERVAL_MS - timeSinceLast);
+      return;
+    }
+
+    const item = directDripQueue.shift();
+    if (!item) break;
+
+    directDripActive++;
+    lastDirectDripTime = Date.now();
+
+    // Fire async request (don't await - process in parallel)
+    processOneDripItem(item).finally(() => {
+      directDripActive--;
+      // Trigger next item
+      if (directDripQueue.length > 0) {
+        setTimeout(() => processDripQueue(), 50);
+      }
+    });
+  }
+}
+
+async function processOneDripItem(item) {
+  const { screenName, element, resolve, reject } = item;
+  debugLog(`Drip processing ${screenName}`);
+
+  try {
+    const response = await new Promise((res) => {
+      chrome.runtime.sendMessage({
+        action: 'FETCH_USER_DETAILS',
+        username: screenName
+      }, (result) => {
+        if (chrome.runtime.lastError) {
+          res({ location: null, userId: null });
+        } else {
+          res(result || { location: null, userId: null });
+        }
+      });
+    });
+
+    if (response.error === 'RATE_LIMITED') {
+      // Re-queue with delay
+      setTimeout(() => {
+        directDripQueue.unshift(item);
+        processDripQueue();
+      }, response.retryAfter || 30000);
+      resolve({ location: null, userId: null });
+    } else {
+      const loc = response.location || response.createdInLocation || null;
+      const result = { ...response, location: loc, source: 'direct' };
+      if (loc) {
+        saveCacheEntry(screenName, result);
+        queueForUpload(screenName, loc);
+      }
+      resolve(result);
+    }
+  } catch (error) {
+    resolve({ location: null, userId: null });
+  }
+}
+
 // Add to Upload Queue (Persisted in Local Storage)
 async function queueForUpload(username, location) {
   if (!username || !location) return;
@@ -685,13 +893,13 @@ function makeLocationRequest(screenName) {
 }
 
 async function getUserLocation(screenName, element) {
+  // --- PHASE 1: Local Cache (0ms) ---
   // Check local memory cache first (L1)
   if (locationCache.has(screenName)) {
     return locationCache.get(screenName);
   }
 
-  // Check persistent storage cache (L2)
-  // We can access chrome.storage.local directly in content scripts
+  // Check persistent storage cache (L2 - 30 day TTL)
   const cacheKey = 'ts_user_cache_' + screenName;
   const cached = await new Promise(resolve => {
     chrome.storage.local.get(cacheKey, (result) => {
@@ -705,44 +913,12 @@ async function getUserLocation(screenName, element) {
     return cached.data;
   }
 
-  // Fetch via Background Script (L3 Network)
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({
-      action: 'FETCH_USER_DETAILS',
-      username: screenName
-    }, (response) => {
-      // Handle potential connection errors
-      if (chrome.runtime.lastError) {
-        // console.warn('TweetSanitizer: BG Error', chrome.runtime.lastError);
-        resolve({ location: null, userId: null });
-        return;
-      }
-
-      if (!response || response.error) {
-        if (response && response.error === 'RATE_LIMITED') {
-          // console.warn(`TweetSanitizer: Rate limited for ${screenName}`);
-        }
-        resolve({ location: null, userId: null });
-      } else {
-        const loc = response.location || response.createdInLocation || null;
-        const uid = response.userId || null;
-
-        // Preserve full response data (flags + details)
-        const result = {
-          ...response,
-          location: loc,
-          userId: uid
-        };
-
-        // Update L1 Cache
-        locationCache.set(screenName, result);
-
-        // Background script already updates L2 and L3 caches
-
-        resolve(result);
-      }
-    });
-  });
+  // --- PHASES 2-4: Bucket → Cloud Batch → Direct Drip ---
+  // Route through the bucket system which handles:
+  // - Phase 2: 150ms debounce to collect usernames
+  // - Phase 3: Cloud batch fetch
+  // - Phase 4: Direct drip fallback (1.5s throttle)
+  return addToBucket(screenName, element);
 }
 
 function extractUsername(element) {
@@ -892,6 +1068,7 @@ async function addFlagToUsername(usernameElement, screenName) {
     placeholderPill.className = 'ts-pill'; // Apply CSS Class
     placeholderPill.setAttribute('data-twitter-flag', 'true');
     placeholderPill.setAttribute('data-loading', 'true');
+    placeholderPill.setAttribute('data-screenname', screenName); // For bridge updates
     // Inline overrides if needed (mostly handled by class now)
     placeholderPill.style.cssText = `
       vertical-align: middle;
@@ -1087,6 +1264,75 @@ async function addFlagToUsername(usernameElement, screenName) {
   } finally {
     processingUsernames.delete(screenName);
   }
+}
+
+// --- FLAG-DETAILS BRIDGE ---
+// Updates flag pills when Details fetches location data successfully
+function updateFlagFromDetails(screenName, data) {
+  if (!screenName || !data) return;
+
+  const location = data.location || data.createdInLocation;
+  if (!location) return;
+
+  // Update cache so future flag loads use this data
+  const cacheResult = { ...data, location, source: 'details-bridge' };
+  saveCacheEntry(screenName, cacheResult);
+  locationCache.set(screenName, cacheResult);
+
+  // Find all pills for this username that are showing "?"
+  const pills = document.querySelectorAll(`.ts-pill[data-screenname="${screenName}"]`);
+
+  pills.forEach(pill => {
+    const flagPart = pill.querySelector('.ts-flag-part');
+    if (!flagPart) return;
+
+    // Only update if still showing placeholder
+    if (flagPart.textContent !== '?' && !flagPart.querySelector('img')) return;
+
+    const flagData = getCountryFlag(location);
+    if (!flagData) return;
+
+    // Update the flag
+    if (flagData.type === 'text') {
+      flagPart.textContent = flagData.value;
+      flagPart.style.cssText = `
+        font-size: 9px;
+        font-weight: bold;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-right: -2px;
+      `;
+      if (flagData.style) {
+        if (flagData.style.backgroundColor) flagPart.style.backgroundColor = flagData.style.backgroundColor;
+        if (flagData.style.background) flagPart.style.background = flagData.style.background;
+        if (flagData.style.color) flagPart.style.color = flagData.style.color;
+        if (flagData.style.border) flagPart.style.border = flagData.style.border;
+        if (flagData.style.textShadow) flagPart.style.textShadow = flagData.style.textShadow;
+      } else {
+        flagPart.style.color = '#536471';
+        flagPart.style.backgroundColor = 'rgba(0, 0, 0, 0.08)';
+      }
+    } else {
+      // Use Twemoji for flag
+      const emoji = flagData.value;
+      const hexCode = Array.from(emoji).map(c => c.codePointAt(0).toString(16)).join('-');
+      const img = document.createElement('img');
+      img.src = `https://abs-0.twimg.com/emoji/v2/svg/${hexCode}.svg`;
+      img.alt = emoji;
+      img.draggable = false;
+      img.style.cssText = 'height: 1em; width: auto; vertical-align: -0.1em; cursor: default;';
+      img.onerror = () => { flagPart.textContent = emoji; };
+      flagPart.textContent = '';
+      flagPart.appendChild(img);
+    }
+
+    // Add tooltip
+    flagPart.title = location;
+    flagPart.style.cursor = 'help';
+
+    pill.removeAttribute('data-loading');
+    // console.log(`TweetSanitizer: Bridge updated flag for ${screenName}`);
+  });
 }
 
 function removeAllFlags() {
@@ -1860,6 +2106,18 @@ const HovercardController = {
     const id = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.requestId = id;
 
+    // --- BRIDGE: Check flag cache first for instant display ---
+    const cachedFlagData = locationCache.get(screenName);
+    if (cachedFlagData && cachedFlagData.location) {
+      // Pre-populate with cached data (may be partial)
+      this.onData({
+        requestId: id,
+        data: cachedFlagData,
+        error: null
+      });
+      // Still fetch fresh data to ensure completeness
+    }
+
     chrome.runtime.sendMessage({
       action: 'FETCH_USER_DETAILS',
       username: screenName
@@ -1869,13 +2127,24 @@ const HovercardController = {
         return;
       }
 
-      // Handle response
-      this.onData({
-        requestId: id,
-        data: response && !response.error ? response : null,
-        error: response?.error,
-        retryAfter: response?.retryAfter
-      });
+      // Only update if we have better data than cache
+      if (response && !response.error) {
+        // Handle response - this will also trigger bridge back to flag
+        this.onData({
+          requestId: id,
+          data: response,
+          error: null,
+          retryAfter: null
+        });
+      } else if (!cachedFlagData) {
+        // No cache and no data - show error
+        this.onData({
+          requestId: id,
+          data: null,
+          error: response?.error,
+          retryAfter: response?.retryAfter
+        });
+      }
     });
   },
 
@@ -1897,6 +2166,11 @@ const HovercardController = {
 
     if (data) {
       populateDetailsHovercard(data);
+
+      // --- BRIDGE: Update flag pill if it's still showing "?" ---
+      if (this.screenName) {
+        updateFlagFromDetails(this.screenName, data);
+      }
     } else {
       const firstVal = this.card.querySelector('.ts-hc-val');
       if (firstVal) {
@@ -2070,8 +2344,17 @@ function populateDetailsHovercard(data) {
 
   // Location
   setValue('location', data.location);
-  if (data.createdCountryAccurate && data.createdIn) {
-    setValue('createdIn', `✓ ${data.createdIn}`, 'verified');
+
+  // Created In - show extracted location, mark verified ones
+  if (data.createdInLocation) {
+    if (data.createdCountryAccurate) {
+      setValue('createdIn', `✓ ${data.createdInLocation}`, 'verified');
+    } else {
+      setValue('createdIn', data.createdInLocation); // Show without checkmark
+    }
+  } else if (data.device && data.device !== 'Unknown') {
+    // Fallback: show device info if no location extracted
+    setValue('createdIn', `via ${data.device}`);
   } else {
     setValue('createdIn', 'Unknown');
   }
@@ -2153,4 +2436,38 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     HovercardController.close(true);
   }
+});
+
+// --- Close hovercard on URL/page change ---
+let lastUrl = location.href;
+let hovercardCheckTimeout = null;
+
+// Combined debounced check for URL change and anchor removal
+function checkHovercardValidity() {
+  if (hovercardCheckTimeout) return; // Already scheduled
+
+  hovercardCheckTimeout = setTimeout(() => {
+    hovercardCheckTimeout = null;
+
+    // Check URL change
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      HovercardController.close(true);
+      return;
+    }
+
+    // Check anchor still in DOM
+    if (HovercardController.anchor && !document.contains(HovercardController.anchor)) {
+      HovercardController.close(true);
+    }
+  }, 100); // 100ms debounce
+}
+
+// Watch for DOM changes (throttled)
+const hovercardValidityObserver = new MutationObserver(checkHovercardValidity);
+hovercardValidityObserver.observe(document.body, { childList: true, subtree: true });
+
+// Also listen for popstate (back/forward buttons)
+window.addEventListener('popstate', () => {
+  HovercardController.close(true);
 });

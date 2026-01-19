@@ -1,3 +1,26 @@
+// --- DEBUG MODE ---
+let DEBUG_MODE = false;
+
+// Initialize debug mode from storage
+chrome.storage.local.get(['debug_mode_enabled'], (result) => {
+    DEBUG_MODE = result.debug_mode_enabled || false;
+});
+
+// Listen for debug mode changes
+chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'local' && changes.debug_mode_enabled) {
+        DEBUG_MODE = changes.debug_mode_enabled.newValue || false;
+        debugLog('Debug mode:', DEBUG_MODE ? 'ENABLED' : 'DISABLED');
+    }
+});
+
+// Debug logging helper
+function debugLog(...args) {
+    if (DEBUG_MODE) {
+        console.log('TweetSanitizer (BG):', ...args);
+    }
+}
+
 chrome.runtime.onInstalled.addListener(async (details) => {
     // --- Promo Logic: Native Flow ---
     // 1. Badge removed by user request
@@ -202,17 +225,96 @@ function parseXResponse(json) {
     const locationAccurate = about.location_accurate;
     const usingVPN = locationAccurate === false;
 
-    // 4. Created Country Accuracy
+    // 4. Extract Created Location from Device/Source
+    // Try to extract country regardless of createdCountryAccurate flag
     const createdCountryAccurate = about.created_country_accurate === true;
     let createdInLocation = null;
-    if (createdCountryAccurate && device) {
-        // Extract country from source like "India Android App"
-        const countryMatch = device.match(/^(\w+(?:\s+\w+)?)\s+(Android|iOS|Web|iPhone|iPad)/i);
-        if (countryMatch) {
-            createdInLocation = countryMatch[1];
-        } else if (about.account_based_in) {
-            createdInLocation = about.account_based_in;
+
+    // Comprehensive country patterns that appear in device strings
+    const countryPatterns = [
+        // Direct country names
+        { pattern: /^(India|Indian)\s/i, country: 'India' },
+        { pattern: /^(US|USA|United States|American)\s/i, country: 'United States' },
+        { pattern: /^(UK|United Kingdom|British)\s/i, country: 'United Kingdom' },
+        { pattern: /^(Canada|Canadian)\s/i, country: 'Canada' },
+        { pattern: /^(Australia|Australian)\s/i, country: 'Australia' },
+        { pattern: /^(Germany|German)\s/i, country: 'Germany' },
+        { pattern: /^(France|French)\s/i, country: 'France' },
+        { pattern: /^(Japan|Japanese)\s/i, country: 'Japan' },
+        { pattern: /^(Brazil|Brazilian)\s/i, country: 'Brazil' },
+        { pattern: /^(Mexico|Mexican)\s/i, country: 'Mexico' },
+        { pattern: /^(Spain|Spanish)\s/i, country: 'Spain' },
+        { pattern: /^(Italy|Italian)\s/i, country: 'Italy' },
+        { pattern: /^(Netherlands|Dutch)\s/i, country: 'Netherlands' },
+        { pattern: /^(Russia|Russian)\s/i, country: 'Russia' },
+        { pattern: /^(China|Chinese)\s/i, country: 'China' },
+        { pattern: /^(Korea|Korean|South Korea)\s/i, country: 'South Korea' },
+        { pattern: /^(Indonesia|Indonesian)\s/i, country: 'Indonesia' },
+        { pattern: /^(Philippines|Filipino)\s/i, country: 'Philippines' },
+        { pattern: /^(Pakistan|Pakistani)\s/i, country: 'Pakistan' },
+        { pattern: /^(Bangladesh|Bangladeshi)\s/i, country: 'Bangladesh' },
+        { pattern: /^(Nigeria|Nigerian)\s/i, country: 'Nigeria' },
+        { pattern: /^(South Africa|South African)\s/i, country: 'South Africa' },
+        { pattern: /^(Egypt|Egyptian)\s/i, country: 'Egypt' },
+        { pattern: /^(Turkey|Turkish)\s/i, country: 'Turkey' },
+        { pattern: /^(Saudi|Saudi Arabia|Saudi Arabian)\s/i, country: 'Saudi Arabia' },
+        { pattern: /^(UAE|United Arab Emirates)\s/i, country: 'UAE' },
+        { pattern: /^(Israel|Israeli)\s/i, country: 'Israel' },
+        { pattern: /^(Thailand|Thai)\s/i, country: 'Thailand' },
+        { pattern: /^(Vietnam|Vietnamese)\s/i, country: 'Vietnam' },
+        { pattern: /^(Malaysia|Malaysian)\s/i, country: 'Malaysia' },
+        { pattern: /^(Singapore|Singaporean)\s/i, country: 'Singapore' },
+        { pattern: /^(Argentina|Argentine|Argentinian)\s/i, country: 'Argentina' },
+        { pattern: /^(Colombia|Colombian)\s/i, country: 'Colombia' },
+        { pattern: /^(Chile|Chilean)\s/i, country: 'Chile' },
+        { pattern: /^(Poland|Polish)\s/i, country: 'Poland' },
+        { pattern: /^(Sweden|Swedish)\s/i, country: 'Sweden' },
+        { pattern: /^(Norway|Norwegian)\s/i, country: 'Norway' },
+        { pattern: /^(Denmark|Danish)\s/i, country: 'Denmark' },
+        { pattern: /^(Finland|Finnish)\s/i, country: 'Finland' },
+        { pattern: /^(Ireland|Irish)\s/i, country: 'Ireland' },
+        { pattern: /^(Portugal|Portuguese)\s/i, country: 'Portugal' },
+        { pattern: /^(Greece|Greek)\s/i, country: 'Greece' },
+        { pattern: /^(New Zealand|NZ)\s/i, country: 'New Zealand' },
+        { pattern: /^(Ukraine|Ukrainian)\s/i, country: 'Ukraine' },
+        { pattern: /^(Romania|Romanian)\s/i, country: 'Romania' },
+        { pattern: /^(Hungary|Hungarian)\s/i, country: 'Hungary' },
+        { pattern: /^(Czech|Czechia)\s/i, country: 'Czech Republic' },
+        { pattern: /^(Austria|Austrian)\s/i, country: 'Austria' },
+        { pattern: /^(Switzerland|Swiss)\s/i, country: 'Switzerland' },
+        { pattern: /^(Belgium|Belgian)\s/i, country: 'Belgium' },
+        { pattern: /^(Kenya|Kenyan)\s/i, country: 'Kenya' },
+        { pattern: /^(Ghana|Ghanaian)\s/i, country: 'Ghana' },
+        { pattern: /^(Morocco|Moroccan)\s/i, country: 'Morocco' },
+        { pattern: /^(Iraq|Iraqi)\s/i, country: 'Iraq' },
+        { pattern: /^(Iran|Iranian)\s/i, country: 'Iran' },
+        { pattern: /^(Peru|Peruvian)\s/i, country: 'Peru' },
+        { pattern: /^(Venezuela|Venezuelan)\s/i, country: 'Venezuela' },
+        { pattern: /^(Sri Lanka|Sri Lankan)\s/i, country: 'Sri Lanka' },
+        { pattern: /^(Nepal|Nepali|Nepalese)\s/i, country: 'Nepal' },
+    ];
+
+    // Try to match country from device string
+    if (device && device !== "Unknown") {
+        for (const { pattern, country } of countryPatterns) {
+            if (pattern.test(device)) {
+                createdInLocation = country;
+                break;
+            }
         }
+
+        // Fallback: Generic pattern to extract first word(s) before platform keywords
+        if (!createdInLocation) {
+            const genericMatch = device.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(Android|iOS|Web|iPhone|iPad|App|Store)/i);
+            if (genericMatch) {
+                createdInLocation = genericMatch[1];
+            }
+        }
+    }
+
+    // Fallback to account_based_in if still no location
+    if (!createdInLocation && about.account_based_in) {
+        createdInLocation = about.account_based_in;
     }
 
     // 5. Username Changes
@@ -335,7 +437,8 @@ class UserCache {
 }
 
 class RequestQueue {
-    constructor(maxConcurrent = 5, minInterval = 300) {
+    // AGGRESSIVE settings for faster loading: 3 concurrent, 300ms interval
+    constructor(maxConcurrent = 3, minInterval = 300) {
         this.maxConcurrent = maxConcurrent;
         this.minInterval = minInterval;
         this.queue = [];
@@ -445,6 +548,7 @@ const GRAPHQL_ID = "zs_jFPFT78rBpXv9Z3U2YQ"; // Must match pageScript.js
 const API_URL = "https://x.com/i/api/graphql";
 
 async function fetchDetailedUserData(screenName) {
+    debugLog(`Fetching X API for ${screenName}`);
     try {
         const keys = await chrome.storage.local.get(['ts_api_auth', 'ts_api_csrf']);
         const auth = keys.ts_api_auth;
@@ -471,6 +575,7 @@ async function fetchDetailedUserData(screenName) {
         });
 
         if (response.status === 429) {
+            console.warn(`TweetSanitizer (BG): Rate limited for ${screenName}`);
             const resetHeader = response.headers.get('x-rate-limit-reset');
             let retryAfter = 900000; // 15 mins default
             if (resetHeader) {
@@ -493,7 +598,9 @@ async function fetchDetailedUserData(screenName) {
         }
 
         const json = await response.json();
-        return parseXResponse(json);
+        const parsed = parseXResponse(json);
+        debugLog(`Got X API data for ${screenName}:`, parsed?.location);
+        return parsed;
     } catch (e) {
         if (e.status === 429) throw e; // Re-throw rate limit
         console.error("TweetSanitizer: Fetch error", e);
@@ -513,10 +620,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleUserDetailsRequest(username) {
+    debugLog(`Request for ${username}`);
+
     // L1: Check Local Cache First
     const cachedData = await globalCache.get(username);
     if (cachedData) {
-        // console.log('L1 Cache Hit:', username);
+        debugLog(`L1 Cache Hit for ${username}`);
         return cachedData;
     }
 
@@ -524,10 +633,11 @@ async function handleUserDetailsRequest(username) {
     try {
         const cloudData = await fetchFromCloud(username);
         if (cloudData) {
-            // console.log('L2 Cloud Hit:', username);
+            debugLog(`L2 Cloud Hit for ${username}`);
             globalCache.set(username, cloudData); // Populate L1
             return cloudData;
         }
+        debugLog(`L2 Cloud Miss for ${username}, falling back to X API`);
     } catch (e) {
         console.warn('TweetSanitizer (BG): Cloud fetch failed', e);
     }
@@ -540,13 +650,8 @@ async function handleUserDetailsRequest(username) {
         .then(data => {
             // Save to Cache on success
             if (data) {
+                debugLog(`L3 X API success for ${username}`);
                 globalCache.set(username, data);
-                // Note: Upload to cloud happens via ALARM or Tab Update (processUploadQueue)
-                // We add to upload queue in the 'set' logic? 
-                // Wait, processUploadQueue reads from STORAGE. 
-                // We need to ensure logic that adds to upload queue is present.
-                // Currently 'globalCache.set' only sets cache. 
-                // We need to add to 'pending_uploads' queue if it's a fresh fetch.
                 addToUploadQueue(username, data.location);
             }
             return data;

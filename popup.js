@@ -3,6 +3,7 @@ const CACHE_KEY = 'twitter_location_cache';
 const BLOCKED_KEY = 'blocked_countries';
 const WHITELIST_KEY = 'whitelist_usernames';
 const PROTECT_FOLLOWING_KEY = 'protect_following';
+const DEBUG_MODE_KEY = 'debug_mode_enabled';
 const DEFAULT_ENABLED = true;
 
 // Load and display statistics
@@ -142,7 +143,7 @@ const MUTE_KEY = 'auto_mute_enabled';
 
 async function loadSettings() {
   try {
-    const result = await chrome.storage.local.get([BLOCKED_KEY, MUTE_KEY, WHITELIST_KEY, PROTECT_FOLLOWING_KEY]);
+    const result = await chrome.storage.local.get([BLOCKED_KEY, MUTE_KEY, WHITELIST_KEY, PROTECT_FOLLOWING_KEY, DEBUG_MODE_KEY]);
 
     // Blocked Countries
     const blockedList = result[BLOCKED_KEY] || [];
@@ -169,6 +170,15 @@ async function loadSettings() {
       protectSwitch.classList.add('enabled');
     } else {
       protectSwitch.classList.remove('enabled');
+    }
+
+    // Debug Mode
+    const debugEnabled = result[DEBUG_MODE_KEY] || false;
+    const debugSwitch = document.getElementById('debugSwitch');
+    if (debugEnabled) {
+      debugSwitch.classList.add('enabled');
+    } else {
+      debugSwitch.classList.remove('enabled');
     }
 
   } catch (error) {
@@ -202,6 +212,35 @@ function toggleProtectFollowing() {
   }
 
   chrome.storage.local.set({ [PROTECT_FOLLOWING_KEY]: newState });
+}
+
+async function toggleDebugMode() {
+  const debugSwitch = document.getElementById('debugSwitch');
+  const isEnabled = debugSwitch.classList.contains('enabled');
+  const newState = !isEnabled;
+
+  if (newState) {
+    debugSwitch.classList.add('enabled');
+  } else {
+    debugSwitch.classList.remove('enabled');
+  }
+
+  await chrome.storage.local.set({ [DEBUG_MODE_KEY]: newState });
+
+  // Notify all Twitter tabs to update debug mode
+  const tabs = await chrome.tabs.query({ url: ['https://twitter.com/*', 'https://x.com/*'] });
+  for (const tab of tabs) {
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: 'debugModeToggle',
+        enabled: newState
+      });
+    } catch (e) {
+      // Tab might not have content script loaded yet
+    }
+  }
+
+  showStatus(newState ? 'Debug mode enabled' : 'Debug mode disabled', true);
 }
 
 // --- Whitelist Functions ---
@@ -374,6 +413,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Protect Following switch
   document.getElementById('protectFollowingSwitch').addEventListener('click', toggleProtectFollowing);
+
+  // Debug Mode switch
+  document.getElementById('debugSwitch').addEventListener('click', toggleDebugMode);
 
   // Whitelist
   document.getElementById('addWhitelistBtn').addEventListener('click', addToWhitelist);
