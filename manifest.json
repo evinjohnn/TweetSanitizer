@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Tweet Sanitizer: Location Flags & Country Blocker for X",
-  "version": "4.0.4",
-  "description": "Display country flags on X (Twitter). Block tweets by country, auto-mute users, and see location badges. Fast & privacy-focused.",
+  "version": "4.0.5",
+  "description": "See country flags & location data on X (Twitter). Detect potential bots, block tweets by region, and view detailed account insights.",
   "author": "Evin John",
   "permissions": [
     "storage",

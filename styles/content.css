@@ -140,3 +140,104 @@
     max-height: 400px;
     overflow-y: auto;
 }
+
+/* 8. Onboarding Highlight (Cyan Breathing) */
+.ts-onboarding-highlight {
+    border: 2px solid #00e5ff !important;
+    background: rgba(0, 229, 255, 0.15) !important;
+    box-shadow: 0 0 0 rgba(0, 229, 255, 0.6);
+    animation: ts-breathe 2s ease-in-out infinite;
+    position: relative;
+    z-index: 2147483647 !important;
+    border-radius: 999px !important;
+    /* Force Pill Shape */
+}
+
+@keyframes ts-breathe {
+    0% {
+        box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.6);
+    }
+
+    70% {
+        box-shadow: 0 0 0 8px rgba(0, 229, 255, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(0, 229, 255, 0);
+    }
+}
+
+.ts-text-blink-cyan {
+    color: #00e5ff !important;
+    text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+    animation: ts-text-breathe 1.5s ease-in-out infinite;
+}
+
+@keyframes ts-text-breathe {
+
+    0%,
+    100% {
+        opacity: 1;
+        text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+    }
+
+    50% {
+        opacity: 0.6;
+        text-shadow: 0 0 15px rgba(0, 229, 255, 0.8);
+    }
+}
+
+/* 9. Coachmark Popup - Glassmorphic & Pill-Like */
+/* 9. Coachmark Popup - Glassmorphic & Pill-Like */
+.ts-coachmark {
+    position: fixed;
+    background: rgba(15, 20, 25, 0.85);
+    /* Slightly darker for contrast */
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    color: #fff;
+    padding: 16px 20px;
+    /* More breathing room */
+    border-radius: 28px;
+    font-size: 14px;
+    /* Larger text */
+    font-weight: 500;
+    /* Bolder text */
+    line-height: 1.5;
+    /* Better spacing */
+    max-width: 240px;
+    z-index: 2147483647 !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    border: none;
+}
+
+.ts-coachmark-arrow {
+    width: 0;
+    height: 0;
+    border-style: solid;
+    position: absolute;
+}
+
+.ts-coachmark-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.ts-coachmark-actions button {
+    background: none;
+    border: none;
+    color: #1d9bf0;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+    opacity: 0.9;
+    transition: opacity 0.2s;
+}
+
+.ts-coachmark-actions button:hover {
+    text-decoration: underline;
+    opacity: 1;
+}
