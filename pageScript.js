@@ -1,1 +1,69 @@
-function a3_0x1d94(_0x39a401,_0x23ffc0){_0x39a401=_0x39a401-0x195;const _0x1c4483=a3_0x1c44();let _0x1d94c7=_0x1c4483[_0x39a401];if(a3_0x1d94['uqvLtX']===undefined){var _0x2c0165=function(_0x1bc466){const _0x4601a2='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=';let _0x4193e9='',_0xc715e8='';for(let _0x1def4b=0x0,_0x5246f8,_0x9662f1,_0x4074d5=0x0;_0x9662f1=_0x1bc466['charAt'](_0x4074d5++);~_0x9662f1&&(_0x5246f8=_0x1def4b%0x4?_0x5246f8*0x40+_0x9662f1:_0x9662f1,_0x1def4b++%0x4)?_0x4193e9+=String['fromCharCode'](0xff&_0x5246f8>>(-0x2*_0x1def4b&0x6)):0x0){_0x9662f1=_0x4601a2['indexOf'](_0x9662f1);}for(let _0x2eceae=0x0,_0xec3484=_0x4193e9['length'];_0x2eceae<_0xec3484;_0x2eceae++){_0xc715e8+='%'+('00'+_0x4193e9['charCodeAt'](_0x2eceae)['toString'](0x10))['slice'](-0x2);}return decodeURIComponent(_0xc715e8);};a3_0x1d94['jjylHT']=_0x2c0165,a3_0x1d94['AauVcS']={},a3_0x1d94['uqvLtX']=!![];}const _0x5cc731=_0x1c4483[0x0],_0x4692a5=_0x39a401+_0x5cc731,_0x7001de=a3_0x1d94['AauVcS'][_0x4692a5];return!_0x7001de?(_0x1d94c7=a3_0x1d94['jjylHT'](_0x1d94c7),a3_0x1d94['AauVcS'][_0x4692a5]=_0x1d94c7):_0x1d94c7=_0x7001de,_0x1d94c7;}(function(_0x42e56a,_0x56b7d5){const _0x49cf1c=a3_0x1d94,_0xed511f=_0x42e56a();while(!![]){try{const _0x399e9f=parseInt(_0x49cf1c(0x1a9))/0x1+parseInt(_0x49cf1c(0x19d))/0x2+-parseInt(_0x49cf1c(0x196))/0x3*(parseInt(_0x49cf1c(0x1af))/0x4)+parseInt(_0x49cf1c(0x1b8))/0x5*(parseInt(_0x49cf1c(0x1c3))/0x6)+-parseInt(_0x49cf1c(0x1cb))/0x7*(parseInt(_0x49cf1c(0x1a0))/0x8)+parseInt(_0x49cf1c(0x19f))/0x9+-parseInt(_0x49cf1c(0x1c5))/0xa;if(_0x399e9f===_0x56b7d5)break;else _0xed511f['push'](_0xed511f['shift']());}catch(_0x206ed8){_0xed511f['push'](_0xed511f['shift']());}}}(a3_0x1c44,0xc0a12),(function(){const _0x2a84d2=a3_0x1d94,_0x264ac5={'iCDLx':function(_0x323450,_0x5b0efa,_0x200dc5){return _0x323450(_0x5b0efa,_0x200dc5);},'tztde':function(_0x4e760c,_0x50b999){return _0x4e760c===_0x50b999;},'YqFzd':'wtzNm','smKtM':function(_0x3d674b,_0x6166eb){return _0x3d674b instanceof _0x6166eb;},'PyOuC':_0x2a84d2(0x1b0),'ZNWDO':_0x2a84d2(0x1ad),'SuTBB':_0x2a84d2(0x1cd),'loocM':_0x2a84d2(0x1b2),'PGEYL':function(_0x386bd1,_0x4e10dd){return _0x386bd1&&_0x4e10dd;},'LQfpb':function(_0x297dc5,_0x1db112){return _0x297dc5===_0x1db112;},'DDbrg':_0x2a84d2(0x1b9),'juOJp':_0x2a84d2(0x1b3),'jPSew':function(_0x4f5b4e,_0x5d53b6){return _0x4f5b4e===_0x5d53b6;},'MsHcU':_0x2a84d2(0x1d1),'zLPGP':_0x2a84d2(0x1a2),'lrlIg':'x.com/i/api/','vHWxz':_0x2a84d2(0x1b4),'pFijG':function(_0x45e547,_0x488ba4){return _0x45e547!==_0x488ba4;},'eVeTC':_0x2a84d2(0x1bd),'OSFCs':_0x2a84d2(0x19b),'ylNVa':_0x2a84d2(0x1a4),'MwlaZ':_0x2a84d2(0x1a6),'MFFTw':function(_0x1d3214,_0x5e99f0,_0x180314){return _0x1d3214(_0x5e99f0,_0x180314);}};let _0x3b9ebc=![];function _0x2a0795(_0x533b64,_0xcd20ac){const _0x5a0b7b=_0x2a84d2,_0x5e64a1={'SMpgf':function(_0x1f9050,_0x7a2aa6){const _0x179753=a3_0x1d94;return _0x264ac5[_0x179753(0x1bb)](_0x1f9050,_0x7a2aa6);},'BMBtG':_0x264ac5[_0x5a0b7b(0x1d2)]};if(_0x3b9ebc)return;const _0x7977ed={};if(_0x264ac5[_0x5a0b7b(0x1c1)](_0x533b64,Headers))_0x533b64[_0x5a0b7b(0x1ac)]((_0x36fee5,_0x2f4f5f)=>{const _0x1f4564=_0x5a0b7b;_0x5e64a1[_0x1f4564(0x1b1)](_0x5e64a1[_0x1f4564(0x1ab)],_0x1f4564(0x1ce))?_0x7977ed[_0x2f4f5f]=_0x36fee5:_0x2ae9a3[_0x1380e4]=_0xf2043;});else{if(_0x264ac5[_0x5a0b7b(0x1bb)]('lvhWn',_0x264ac5[_0x5a0b7b(0x1cf)]))Object['assign'](_0x7977ed,_0x533b64);else{if(!this[_0x5a0b7b(0x1be)])this[_0x5a0b7b(0x1be)]={};return this[_0x5a0b7b(0x1be)][_0x1b0c47['toLowerCase']()]=_0x27199d,_0xedbf85[_0x5a0b7b(0x1ae)](this,arguments);}}const _0x2de602=_0x7977ed[_0x5a0b7b(0x1ca)]||_0x7977ed[_0x264ac5[_0x5a0b7b(0x1bc)]],_0x164f17=_0x7977ed[_0x264ac5[_0x5a0b7b(0x1cc)]]||_0x7977ed[_0x264ac5['loocM']];_0x264ac5[_0x5a0b7b(0x1a1)](_0x2de602,_0x164f17)&&(_0x264ac5[_0x5a0b7b(0x195)](_0x264ac5[_0x5a0b7b(0x1b7)],_0x264ac5['DDbrg'])?(_0x3b9ebc=!![],window['postMessage']({'type':_0x264ac5[_0x5a0b7b(0x199)],'payload':{'authorization':_0x2de602,'csrfToken':_0x164f17}},'*')):_0x21db23&&_0x25263b['headers']&&_0x264ac5[_0x5a0b7b(0x19c)](_0x3b57fc,_0x821fff[_0x5a0b7b(0x1b6)],_0x4a09f4));}const _0xd57db=window[_0x2a84d2(0x19a)];window['fetch']=function(..._0x30bd49){const _0x54b93a=_0x2a84d2,_0x15db07={'qFITo':_0x264ac5['juOJp'],'jUxrU':function(_0x39152c,_0x30260b,_0x376c9f){const _0x54efe8=a3_0x1d94;return _0x264ac5[_0x54efe8(0x19c)](_0x39152c,_0x30260b,_0x376c9f);}};if(_0x264ac5['jPSew'](_0x264ac5['MsHcU'],_0x264ac5[_0x54b93a(0x1a5)])){const [_0x4b760c,_0xaf227c]=_0x30bd49;if(typeof _0x4b760c===_0x264ac5[_0x54b93a(0x1a8)]&&(_0x4b760c[_0x54b93a(0x1ba)](_0x264ac5['lrlIg'])||_0x4b760c[_0x54b93a(0x1ba)](_0x264ac5[_0x54b93a(0x1d3)]))){if(_0x264ac5['pFijG'](_0x264ac5['eVeTC'],_0x264ac5['eVeTC']))return this['_url']=_0x5811d7,_0x3f9037[_0x54b93a(0x1ae)](this,arguments);else _0xaf227c&&_0xaf227c['headers']&&('DNNbX'!==_0x264ac5[_0x54b93a(0x1c4)]?(_0x596481=!![],_0x3dae17[_0x54b93a(0x1c2)]({'type':_0x15db07['qFITo'],'payload':{'authorization':_0x59e1a0,'csrfToken':_0x4f1009}},'*')):_0x2a0795(_0xaf227c['headers'],_0x4b760c));}return _0xd57db[_0x54b93a(0x1ae)](this,_0x30bd49);}else _0x15db07[_0x54b93a(0x1c0)](_0x4b95b1,_0x14ca97[_0x54b93a(0x1b6)],_0x58f48b);};const _0x326f6f=XMLHttpRequest[_0x2a84d2(0x1a7)]['open'],_0x4884ea=XMLHttpRequest[_0x2a84d2(0x1a7)][_0x2a84d2(0x1bf)],_0x6031c1=XMLHttpRequest[_0x2a84d2(0x1a7)][_0x2a84d2(0x1c8)];XMLHttpRequest[_0x2a84d2(0x1a7)][_0x2a84d2(0x1b5)]=function(_0x12412c,_0x39d4ba){const _0x5c5275=_0x2a84d2;if(_0x264ac5['LQfpb'](_0x264ac5[_0x5c5275(0x198)],_0x5c5275(0x1a3)))_0x1def4b['forEach']((_0x3870c7,_0x515f47)=>{_0x9662f1[_0x515f47]=_0x3870c7;});else return this[_0x5c5275(0x1c9)]=_0x39d4ba,_0x326f6f[_0x5c5275(0x1ae)](this,arguments);},XMLHttpRequest['prototype'][_0x2a84d2(0x1c8)]=function(_0xec3706,_0x4b318f){const _0x4fafe5=_0x2a84d2,_0x5d2aef={'coeyb':'x.com/i/api/','FFuol':_0x264ac5[_0x4fafe5(0x1d3)]};if(_0x264ac5[_0x4fafe5(0x19e)](_0x264ac5[_0x4fafe5(0x1aa)],_0x264ac5[_0x4fafe5(0x1aa)])){if(this[_0x4fafe5(0x1c9)]&&(this[_0x4fafe5(0x1c9)][_0x4fafe5(0x1ba)](_0x5d2aef[_0x4fafe5(0x1c6)])||this['_url']['includes'](_0x5d2aef[_0x4fafe5(0x1d0)]))){if(this[_0x4fafe5(0x1be)])_0x199e6d(this[_0x4fafe5(0x1be)],this[_0x4fafe5(0x1c9)]);}return _0x349d98[_0x4fafe5(0x1ae)](this,arguments);}else{if(!this[_0x4fafe5(0x1be)])this[_0x4fafe5(0x1be)]={};return this[_0x4fafe5(0x1be)][_0xec3706['toLowerCase']()]=_0x4b318f,_0x6031c1[_0x4fafe5(0x1ae)](this,arguments);}},XMLHttpRequest[_0x2a84d2(0x1a7)]['send']=function(){const _0x42aa0c=_0x2a84d2;if(this['_url']&&(this[_0x42aa0c(0x1c9)]['includes'](_0x264ac5[_0x42aa0c(0x197)])||this[_0x42aa0c(0x1c9)][_0x42aa0c(0x1ba)]('twitter.com/i/api/'))){if(this['_headers'])_0x264ac5[_0x42aa0c(0x1c7)](_0x2a0795,this['_headers'],this[_0x42aa0c(0x1c9)]);}return _0x4884ea[_0x42aa0c(0x1ae)](this,arguments);};}()));function a3_0x1c44(){const _0x2dc0d4=['ode4m21RvhDitW','u3vuqKi','Ec1JC3jMlxrVA2vU','D3r6tM0','uhLpDum','rKz1B2W','tMfUv0W','wxfgEMq','DKHxEhO','tffMCgi','nNjAzMvhtq','BhjSswC','EwXovMe','ANvpsNa','zMv0y2G','re5oyLG','AunethG','mtuZmtCZmgrkswPJtq','CezPAKC','ntyYodC3mvDWvLbgEq','mZyZmMH2DNrevq','ueDfwuW','C3rYAw5N','s2fyDwG','zMjQvKi','txniy1u','DvD0wuK','ChjVDg90ExbL','EKXqr1a','nJC5nJaZvNbTzxnV','txDSyvO','qK1cDeC','zM9YrwfJAa','qxv0Ag9YAxPHDgLVBG','yxbWBhK','mtKZnty4D2H3u2vl','BhzOv24','u01Wz2y','wc1dC3jMlvrVA2vU','vfDjvfrfuL9irufervjtx0nbufrvuKve','DhDPDhrLCI5JB20VAs9HCgKV','B3bLBG','AgvHzgvYCW','rerICMC','mtmZmZeZnxD1vhfpyW','EeThzvO','Aw5JBhvKzxm','DhP0zgu','wK5xre8','we5KtfC','x2HLywrLCNm','C2vUza','ALv4CLu','C21lDe0','Cg9ZDe1LC3nHz2u','mZbTtfzODMe','t1ngq3m','mtK4nZuWmJbiBerzyKS','y29LEwi','tuzgvhC','C2v0uMvXDwvZDeHLywrLCG','x3vYBa','yxv0Ag9YAxPHDgLVBG'];a3_0x1c44=function(){return _0x2dc0d4;};return a3_0x1c44();}
+// pageScript.js
+(function () {
+    // 1. Capture Headers Logic
+    let headersCaptured = false;
+
+    function captureHeaders(headers, url) {
+        if (headersCaptured) return; // Only need to capture once per session usually
+
+        const headerObj = {};
+        if (headers instanceof Headers) {
+            headers.forEach((value, key) => { headerObj[key] = value; });
+        } else {
+            Object.assign(headerObj, headers);
+        }
+
+        // We specifically need Authorization and CSRF Token
+        // Note: We use lowercase keys because frameworks/browsers normalize them
+        const auth = headerObj['authorization'] || headerObj['Authorization'];
+        const csrf = headerObj['x-csrf-token'] || headerObj['X-Csrf-Token'];
+
+        if (auth && csrf) {
+            headersCaptured = true;
+            // Send to Content Script
+            window.postMessage({
+                type: 'TWITTER_HEADERS_CAPTURED',
+                payload: {
+                    authorization: auth,
+                    csrfToken: csrf
+                }
+            }, '*');
+            // console.log('TweetSanitizer: Headers captured and sent to extension.');
+        }
+    }
+
+    // 2. Intercept Fetch
+    const originalFetch = window.fetch;
+    window.fetch = function (...args) {
+        const [url, options] = args;
+        if (typeof url === 'string' && (url.includes('x.com/i/api/') || url.includes('twitter.com/i/api/'))) {
+            if (options && options.headers) {
+                captureHeaders(options.headers, url);
+            }
+        }
+        return originalFetch.apply(this, args);
+    };
+
+    // 3. Intercept XHR
+    const originalXHROpen = XMLHttpRequest.prototype.open;
+    const originalXHRSend = XMLHttpRequest.prototype.send;
+    const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+
+    XMLHttpRequest.prototype.open = function (method, url) {
+        this._url = url;
+        return originalXHROpen.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.setRequestHeader = function (header, value) {
+        if (!this._headers) this._headers = {};
+        this._headers[header.toLowerCase()] = value;
+        return originalSetRequestHeader.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function () {
+        if (this._url && (this._url.includes('x.com/i/api/') || this._url.includes('twitter.com/i/api/'))) {
+            if (this._headers) captureHeaders(this._headers, this._url);
+        }
+        return originalXHRSend.apply(this, arguments);
+    };
+})();
